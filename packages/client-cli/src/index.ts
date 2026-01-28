@@ -1,0 +1,114 @@
+/**
+ * Voidswap Client CLI
+ * 
+ * Main entry point that wires together CLI parsing, transport, and handshake.
+ */
+
+import { parseArgs, applyTamper } from './cli.js';
+import { Transport } from './transport.js';
+import { Handshake } from './handshake.js';
+import type { Message } from '@voidswap/protocol';
+
+function log(message: string) {
+  const time = new Date().toISOString();
+  console.log(`[${time}] ${message}`);
+}
+
+async function main() {
+  try {
+    // Parse CLI arguments
+    const args = parseArgs(process.argv);
+    
+    log(`Role: ${args.role}`);
+    log(`Room: ${args.room}`);
+    log(`Relay: ${args.relay}`);
+    
+    // Apply tamper if bob and tamper is set
+    let params = args.params;
+    if (args.role === 'bob' && args.tamper !== 'none') {
+      log(`⚠️ TAMPER MODE: Mutating ${args.tamper}`);
+      params = applyTamper(params, args.tamper);
+    }
+
+    // Create handshake handler
+    let transport: Transport;
+    
+    const handshake = new Handshake(args.role, params, {
+      onSendMessage: (msg: Message) => {
+        transport.sendPayload(msg);
+      },
+      onLocked: (sid: string) => {
+        log('');
+        log('='.repeat(60));
+        log(`STATE: SESSION_LOCKED`);
+        log(`sid=${sid}`);
+        log('='.repeat(60));
+        log('');
+        
+        // Exit after a short delay to allow any final messages
+        setTimeout(() => {
+          transport.close();
+          process.exit(0);
+        }, 500);
+      },
+      onAbort: (code: string, message: string) => {
+        log('');
+        log('='.repeat(60));
+        log(`STATE: ABORTED`);
+        log(`code=${code}`);
+        log(`message=${message}`);
+        log('='.repeat(60));
+        log('');
+        
+        transport.close();
+        process.exit(1);
+      },
+      onLog: (message: string) => {
+        log(message);
+      },
+    });
+
+    // Create transport
+    transport = new Transport(args.relay, args.room, {
+      onJoined: (clientId: string) => {
+        log(`Connected to relay, clientId=${clientId}`);
+        log(`Joined room: ${args.room}`);
+        
+        // Start handshake
+        handshake.start();
+      },
+      onPeerPayload: (payload: unknown) => {
+        handshake.handleIncoming(payload);
+      },
+      onError: (error: Error) => {
+        log(`Error: ${error.message}`);
+        process.exit(1);
+      },
+      onClose: () => {
+        log('Connection closed');
+      },
+    });
+
+  } catch (err) {
+    console.error('Error:', err instanceof Error ? err.message : err);
+    console.error('');
+    console.error('Usage: pnpm dev -- --role <alice|bob> --room <room-name> [options]');
+    console.error('');
+    console.error('Options:');
+    console.error('  --role          Required. alice or bob');
+    console.error('  --room          Required. Room name to join');
+    console.error('  --relay         Relay URL (default: ws://localhost:8787)');
+    console.error('  --chainId       Chain ID (default: 1)');
+    console.error('  --drandChainId  Drand chain ID (default: fastnet)');
+    console.error('  --vA            Alice value (default: 1000000000000000000)');
+    console.error('  --vB            Bob value (default: 2000000000000000000)');
+    console.error('  --targetAlice   Alice target address');
+    console.error('  --targetBob     Bob target address');
+    console.error('  --rBRefund      Bob refund round (default: 1000)');
+    console.error('  --rARefund      Alice refund round (default: 2000)');
+    console.error('  --tamper        For testing: vA, targetAlice, or none (default: none)');
+    process.exit(1);
+  }
+}
+
+main();

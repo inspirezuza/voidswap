@@ -1,0 +1,22 @@
+{
+  "name": "@voidswap/client-cli",
+  "version": "1.0.0",
+  "description": "CLI client for voidswap handshake over WebSocket relay",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "alice": "tsx src/index.ts --role alice --room test",
+    "bob": "tsx src/index.ts --role bob --room test"
+  },
+  "dependencies": {
+    "@voidswap/protocol": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

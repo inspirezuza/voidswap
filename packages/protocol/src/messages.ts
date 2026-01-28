@@ -104,6 +104,8 @@ export type HelloMessage = z.infer<typeof HelloMessageSchema>;
 
 export const HelloAckPayloadSchema = z.object({
   nonce: NonceSchema,
+  /** Include handshake params so both sides can lock even if one misses the initial hello */
+  handshake: HandshakeParamsSchema,
   /** Optional SHA-256 of canonical handshake params for debugging */
   handshakeHash: z.string().optional(),
 });
