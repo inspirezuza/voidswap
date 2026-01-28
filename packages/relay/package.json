@@ -1,0 +1,21 @@
+{
+  "name": "@voidswap/relay",
+  "version": "1.0.0",
+  "description": "WebSocket relay server for room-based message forwarding",
+  "type": "module",
+  "main": "src/server.ts",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "test": "tsx src/test.ts"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
