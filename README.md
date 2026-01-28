@@ -1,59 +1,55 @@
-# WebSocket Relay
+# Voidswap
 
-A simple WebSocket relay server for room-based message forwarding.
+A trustless atomic swap protocol using timelock encryption.
 
-## Features
+## Packages
 
-- Room-based messaging (join/leave rooms)
-- Message forwarding to all peers (excludes sender)
-- Validation: room names (1-64 chars, `[a-zA-Z0-9_-]`), message size (64KB max)
-- Error handling with descriptive codes
-- Logging: connect/disconnect/join/forward/error
-
-## Quick Start
+### [packages/relay](./packages/relay)
+WebSocket relay server for room-based message forwarding between peers.
 
 ```bash
 cd packages/relay
 pnpm install
-pnpm dev
+pnpm dev        # Start server at ws://localhost:8787
+pnpm test       # Run smoke tests
 ```
 
-Server runs at `ws://localhost:8787`
-
-## Protocol
-
-### Join Room
-```json
-→ {"type":"join","room":"abc123"}
-← {"type":"joined","room":"abc123","clientId":"uuid-here"}
-```
-
-### Send Message
-```json
-→ {"type":"msg","room":"abc123","payload":{"any":"data"}}
-← {"type":"msg","room":"abc123","from":"sender-uuid","payload":{"any":"data"}}
-```
-
-### Errors
-```json
-← {"type":"error","code":"NOT_JOINED|BAD_ROOM|BAD_MSG|TOO_LARGE","message":"..."}
-```
-
-## Testing
+### [packages/protocol](./packages/protocol)
+Protocol message types, canonical JSON serialization, and SID computation.
 
 ```bash
-pnpm test
+cd packages/protocol
+pnpm install
+pnpm test           # Run unit tests (14 tests)
+pnpm example:sid    # Run SID computation example
 ```
 
-## Project Structure
+## Protocol Overview
 
+### Relay Protocol
+```json
+→ {"type":"join","room":"abc123"}
+← {"type":"joined","room":"abc123","clientId":"..."}
+→ {"type":"msg","room":"abc123","payload":{...}}
+← {"type":"msg","room":"abc123","from":"...","payload":{...}}
 ```
-packages/relay/
-├── src/
-│   ├── server.ts    # Main WebSocket server
-│   ├── types.ts     # TypeScript type definitions
-│   ├── validate.ts  # Validation utilities
-│   └── test.ts      # Smoke test script
-├── package.json
-└── tsconfig.json
+
+### Handshake Protocol
+```json
+→ {"type":"hello","from":"alice","seq":0,"payload":{"handshake":{...},"nonce":"0x..."}}
+← {"type":"hello_ack","from":"bob","seq":1,"payload":{"nonce":"0x..."}}
+```
+
+## Development
+
+```bash
+# Install dependencies for all packages
+pnpm -C packages/relay install
+pnpm -C packages/protocol install
+
+# Run relay server
+pnpm -C packages/relay dev
+
+# Run protocol tests
+pnpm -C packages/protocol test
 ```
