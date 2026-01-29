@@ -30,12 +30,32 @@ export function appendRecord(
 }
 
 /**
+ * Sort transcript records for deterministic hashing.
+ * Sort key: from (alice < bob), seq (ascending), type (lexicographic)
+ */
+function sortRecords(records: TranscriptRecord[]): TranscriptRecord[] {
+  return [...records].sort((a, b) => {
+    // Primary: from (alice before bob)
+    if (a.from !== b.from) {
+      return a.from === 'alice' ? -1 : 1;
+    }
+    // Secondary: seq (ascending)
+    if (a.seq !== b.seq) {
+      return a.seq - b.seq;
+    }
+    // Tertiary: type (lexicographic)
+    return a.type.localeCompare(b.type);
+  });
+}
+
+/**
  * Compute SHA-256 hash of the entire transcript.
- * Useful for verifying both parties have identical message history.
+ * Records are SORTED before hashing to ensure determinism regardless of append order.
  * 
  * @returns 64-character lowercase hex string
  */
 export function transcriptHash(records: TranscriptRecord[]): string {
-  const canonical = canonicalStringify(records);
+  const sorted = sortRecords(records);
+  const canonical = canonicalStringify(sorted);
   return createHash('sha256').update(canonical, 'utf8').digest('hex');
 }

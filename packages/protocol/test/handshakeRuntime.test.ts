@@ -43,7 +43,7 @@ function findAbortedEvent(events: RuntimeEvent[]) {
 
 describe('HandshakeRuntime', () => {
   describe('Happy path', () => {
-    it('should lock both runtimes with same SID', () => {
+    it('should lock both runtimes with same SID and transcriptHash', () => {
       const alice = createHandshakeRuntime({
         role: 'alice',
         params: sampleParams,
@@ -56,27 +56,36 @@ describe('HandshakeRuntime', () => {
         localNonce: bobNonce,
       });
 
-      // Alice starts
+      // Both start (send hello)
       const aliceStartEvents = alice.start();
-      expect(alice.getState()).toBe('SENT_HELLO');
-      const aliceHello = getNetOutMsgs(aliceStartEvents)[0];
-
-      // Bob starts
       const bobStartEvents = bob.start();
+      expect(alice.getState()).toBe('SENT_HELLO');
       expect(bob.getState()).toBe('SENT_HELLO');
+      const aliceHello = getNetOutMsgs(aliceStartEvents)[0];
       const bobHello = getNetOutMsgs(bobStartEvents)[0];
 
-      // Alice receives Bob's hello -> should emit ack AND lock
+      // Alice receives Bob's hello -> emits alice ack, but NOT locked yet (no seenPeerAck)
       const aliceRecvBobHello = alice.handleIncoming(bobHello);
       const aliceAck = getNetOutMsgs(aliceRecvBobHello)[0];
-      const aliceLockedEvent = findLockedEvent(aliceRecvBobHello);
+      expect(aliceAck).toBeTruthy();
+      expect(findLockedEvent(aliceRecvBobHello)).toBeUndefined(); // NOT locked yet
 
-      // Bob receives Alice's hello -> should emit ack AND lock
+      // Bob receives Alice's hello -> emits bob ack, but NOT locked yet
       const bobRecvAliceHello = bob.handleIncoming(aliceHello);
-      const bobLockedEvent = findLockedEvent(bobRecvAliceHello);
+      const bobAck = getNetOutMsgs(bobRecvAliceHello)[0];
+      expect(bobAck).toBeTruthy();
+      expect(findLockedEvent(bobRecvAliceHello)).toBeUndefined(); // NOT locked yet
 
-      // Both should be locked after receiving peer's hello
+      // Alice receives Bob's ack -> should LOCK now
+      const aliceRecvBobAck = alice.handleIncoming(bobAck);
+      const aliceLockedEvent = findLockedEvent(aliceRecvBobAck);
+      expect(aliceLockedEvent).toBeTruthy();
       expect(alice.getState()).toBe('LOCKED');
+
+      // Bob receives Alice's ack -> should LOCK now
+      const bobRecvAliceAck = bob.handleIncoming(aliceAck);
+      const bobLockedEvent = findLockedEvent(bobRecvAliceAck);
+      expect(bobLockedEvent).toBeTruthy();
       expect(bob.getState()).toBe('LOCKED');
 
       // Both should have same SID
@@ -84,20 +93,13 @@ describe('HandshakeRuntime', () => {
       expect(bob.getSid()).toBeTruthy();
       expect(alice.getSid()).toBe(bob.getSid());
 
-      // Lock events should have SID
-      expect(aliceLockedEvent).toBeTruthy();
-      expect(bobLockedEvent).toBeTruthy();
-      expect(aliceLockedEvent?.sid).toBe(alice.getSid());
-      expect(bobLockedEvent?.sid).toBe(bob.getSid());
-
-      // Both should have same transcript hash (transcript may differ due to order)
-      expect(aliceLockedEvent?.transcriptHash).toBeTruthy();
-      expect(bobLockedEvent?.transcriptHash).toBeTruthy();
+      // Both should have same transcriptHash (now deterministic due to sorting)
+      expect(aliceLockedEvent?.transcriptHash).toBe(bobLockedEvent?.transcriptHash);
     });
   });
 
   describe('Reordering tolerance', () => {
-    it('should lock even if ack arrives (would be ignored since already locked)', () => {
+    it('should not lock when ack arrives before hello', () => {
       const alice = createHandshakeRuntime({
         role: 'alice',
         params: sampleParams,
@@ -111,134 +113,110 @@ describe('HandshakeRuntime', () => {
       });
 
       // Both start
-      const aliceStartEvents = alice.start();
-      const bobStartEvents = bob.start();
-      const aliceHello = getNetOutMsgs(aliceStartEvents)[0];
-      const bobHello = getNetOutMsgs(bobStartEvents)[0];
-
-      // Alice receives Bob's hello -> locks
-      const aliceRecvHello = alice.handleIncoming(bobHello);
-      expect(alice.getState()).toBe('LOCKED');
-      const aliceAck = getNetOutMsgs(aliceRecvHello)[0];
-
-      // Bob receives Alice's hello -> locks
-      const bobRecvHello = bob.handleIncoming(aliceHello);
-      expect(bob.getState()).toBe('LOCKED');
-      const bobAck = getNetOutMsgs(bobRecvHello)[0];
-
-      // Both receive acks (should be ignored since already locked)
-      const aliceRecvAck = alice.handleIncoming(bobAck);
-      const bobRecvAck = bob.handleIncoming(aliceAck);
-
-      expect(aliceRecvAck).toHaveLength(0); // Ignored
-      expect(bobRecvAck).toHaveLength(0); // Ignored
-
-      // Still locked with same SID
-      expect(alice.getState()).toBe('LOCKED');
-      expect(bob.getState()).toBe('LOCKED');
-      expect(alice.getSid()).toBe(bob.getSid());
-    });
-  });
-
-  describe('Anti-replay', () => {
-    it('should reject duplicate seq (replay) before lock', () => {
-      const alice = createHandshakeRuntime({
-        role: 'alice',
-        params: sampleParams,
-        localNonce: aliceNonce,
-      });
-
-      // Create a fake hello that we can replay before locking
-      const fakeHello = {
-        type: 'hello',
-        from: 'bob',
-        seq: 0,
-        payload: {
-          handshake: { ...sampleParams, vA: '999' }, // Different params so it aborts on mismatch first
-          nonce: bobNonce,
-        },
-      };
-
       alice.start();
+      bob.start();
 
-      // Actually let's test with a scenario where replay happens before lock
-      // Need to send a message that doesn't cause lock
-
-      // Reset with fresh runtime
-      const alice2 = createHandshakeRuntime({
-        role: 'alice',
-        params: sampleParams,
-        localNonce: aliceNonce,
-      });
-
-      alice2.start();
-
-      // Receive a hello from bob - this will lock alice
-      const bobHello = {
-        type: 'hello',
+      // Create a fake bob ack (simulating receiving ack before hello)
+      const fakeBobAck = {
+        type: 'hello_ack',
         from: 'bob',
-        seq: 5, // Using higher seq so we can test lower seq later
+        seq: 1,
         payload: {
+          nonce: bobNonce,
           handshake: sampleParams,
-          nonce: bobNonce,
+          handshakeHash: 'somehash',
         },
       };
-      
-      const events1 = alice2.handleIncoming(bobHello);
-      expect(alice2.getState()).toBe('LOCKED'); // Alice locks
 
-      // Can't test replay on locked runtime (it ignores messages)
-      // Let's test with out-of-order instead
+      // Alice receives Bob's ack BEFORE hello
+      const events1 = alice.handleIncoming(fakeBobAck);
+      expect(findLockedEvent(events1)).toBeUndefined(); // Should NOT lock
+      expect(alice.getState()).not.toBe('LOCKED');
     });
 
-    it('should reject out-of-order (lower seq) before lock', () => {
+    it('should lock after receiving both hello and ack (complete exchange)', () => {
       const alice = createHandshakeRuntime({
         role: 'alice',
         params: sampleParams,
-        localNonce: aliceNonce,
-      });
-
-      alice.start();
-
-      // Send hello with high seq but mismatched params (so it aborts instead of locks)
-      const mismatchHello = {
-        type: 'hello',
-        from: 'bob',
-        seq: 10,
-        payload: {
-          handshake: { ...sampleParams, vA: '999' }, // Different params
-          nonce: bobNonce,
-        },
-      };
-
-      // This will abort due to params mismatch
-      const events = alice.handleIncoming(mismatchHello);
-      expect(alice.getState()).toBe('ABORTED');
-      const abortEvent = findAbortedEvent(events);
-      expect(abortEvent?.code).toBe('PROTOCOL_ERROR');
-      expect(abortEvent?.message).toContain('mismatch');
-    });
-
-    it('should track seq per sender and reject replay', () => {
-      const alice = createHandshakeRuntime({
-        role: 'alice',
-        params: { ...sampleParams, vA: '111' }, // Use different params
         localNonce: aliceNonce,
       });
 
       const bob = createHandshakeRuntime({
         role: 'bob',
-        params: { ...sampleParams, vA: '222' }, // Different params
+        params: sampleParams,
         localNonce: bobNonce,
       });
 
-      alice.start();
-      const bobEvents = bob.start();
-      const bobHello = getNetOutMsgs(bobEvents)[0];
+      // Both start
+      const aliceStart = alice.start();
+      const bobStart = bob.start();
+      const aliceHello = getNetOutMsgs(aliceStart)[0];
+      const bobHello = getNetOutMsgs(bobStart)[0];
 
-      // Alice receives Bob's hello - will abort due to mismatch
-      const events1 = alice.handleIncoming(bobHello);
+      // Alice receives Bob's hello -> sends ack, NOT locked yet
+      const aliceRecvBobHello = alice.handleIncoming(bobHello);
+      const aliceAck = getNetOutMsgs(aliceRecvBobHello)[0];
+      expect(findLockedEvent(aliceRecvBobHello)).toBeUndefined();
+
+      // Bob receives Alice's hello -> sends ack, NOT locked yet
+      const bobRecvAliceHello = bob.handleIncoming(aliceHello);
+      const bobAck = getNetOutMsgs(bobRecvAliceHello)[0];
+      expect(findLockedEvent(bobRecvAliceHello)).toBeUndefined();
+
+      // Alice receives Bob's ack -> LOCKED
+      const aliceRecvBobAck = alice.handleIncoming(bobAck);
+      expect(alice.getState()).toBe('LOCKED');
+
+      // Bob receives Alice's ack -> LOCKED
+      const bobRecvAliceAck = bob.handleIncoming(aliceAck);
+      expect(bob.getState()).toBe('LOCKED');
+
+      // Same SID and transcriptHash
+      expect(alice.getSid()).toBe(bob.getSid());
+      expect(alice.getTranscriptHash()).toBe(bob.getTranscriptHash());
+    });
+  });
+
+  describe('Anti-replay', () => {
+    it('should reject out-of-order (lower seq)', () => {
+      const alice = createHandshakeRuntime({
+        role: 'alice',
+        params: sampleParams,
+        localNonce: aliceNonce,
+      });
+
+      alice.start();
+
+      // Send hello with high seq
+      const msg1 = {
+        type: 'hello',
+        from: 'bob',
+        seq: 5,
+        payload: {
+          handshake: sampleParams,
+          nonce: bobNonce,
+        },
+      };
+
+      alice.handleIncoming(msg1);
+      expect(alice.getState()).not.toBe('ABORTED');
+
+      // Now try a lower seq (should fail)
+      const msg2 = {
+        type: 'hello_ack',
+        from: 'bob',
+        seq: 3,
+        payload: {
+          nonce: bobNonce,
+          handshake: sampleParams,
+        },
+      };
+
+      const events = alice.handleIncoming(msg2);
       expect(alice.getState()).toBe('ABORTED');
+      const abortEvent = findAbortedEvent(events);
+      expect(abortEvent?.code).toBe('BAD_MESSAGE');
+      expect(abortEvent?.message).toContain('out-of-order');
     });
   });
 
@@ -316,33 +294,6 @@ describe('HandshakeRuntime', () => {
   });
 
   describe('State transitions', () => {
-    it('should transition through expected states', () => {
-      const alice = createHandshakeRuntime({
-        role: 'alice',
-        params: sampleParams,
-        localNonce: aliceNonce,
-      });
-
-      expect(alice.getState()).toBe('INIT');
-
-      alice.start();
-      expect(alice.getState()).toBe('SENT_HELLO');
-
-      // Receive peer hello
-      const peerHello = {
-        type: 'hello',
-        from: 'bob',
-        seq: 0,
-        payload: {
-          handshake: sampleParams,
-          nonce: bobNonce,
-        },
-      };
-
-      alice.handleIncoming(peerHello);
-      expect(alice.getState()).toBe('LOCKED'); // Should lock immediately after receiving hello
-    });
-
     it('should ignore messages after locked', () => {
       const alice = createHandshakeRuntime({
         role: 'alice',
@@ -350,28 +301,34 @@ describe('HandshakeRuntime', () => {
         localNonce: aliceNonce,
       });
 
-      alice.start();
+      const bob = createHandshakeRuntime({
+        role: 'bob',
+        params: sampleParams,
+        localNonce: bobNonce,
+      });
 
-      // Receive hello to lock
-      const peerHello = {
-        type: 'hello',
-        from: 'bob',
-        seq: 0,
-        payload: {
-          handshake: sampleParams,
-          nonce: bobNonce,
-        },
-      };
-      alice.handleIncoming(peerHello);
+      // Complete handshake
+      const aliceStart = alice.start();
+      const bobStart = bob.start();
+      const aliceHello = getNetOutMsgs(aliceStart)[0];
+      const bobHello = getNetOutMsgs(bobStart)[0];
+
+      const aliceRecvBobHello = alice.handleIncoming(bobHello);
+      const bobRecvAliceHello = bob.handleIncoming(aliceHello);
+      const aliceAck = getNetOutMsgs(aliceRecvBobHello)[0];
+      const bobAck = getNetOutMsgs(bobRecvAliceHello)[0];
+
+      alice.handleIncoming(bobAck);
+      bob.handleIncoming(aliceAck);
+
       expect(alice.getState()).toBe('LOCKED');
-
       const sid = alice.getSid();
 
       // Try to send another message - should be ignored
       const anotherMsg = {
         type: 'hello',
         from: 'bob',
-        seq: 1,
+        seq: 99,
         payload: {
           handshake: sampleParams,
           nonce: '0x' + 'c'.repeat(64),
@@ -382,58 +339,6 @@ describe('HandshakeRuntime', () => {
       expect(events).toHaveLength(0);
       expect(alice.getState()).toBe('LOCKED');
       expect(alice.getSid()).toBe(sid); // SID unchanged
-    });
-  });
-
-  describe('Seq tracking', () => {
-    it('should accept strictly increasing seq', () => {
-      const alice = createHandshakeRuntime({
-        role: 'alice',
-        params: { ...sampleParams, vA: '123' }, // Different to cause abort
-        localNonce: aliceNonce,
-      });
-
-      alice.start();
-
-      // First message with seq 0
-      const msg1 = {
-        type: 'hello',
-        from: 'bob',
-        seq: 0,
-        payload: {
-          handshake: { ...sampleParams, vA: '456' }, // Different
-          nonce: bobNonce,
-        },
-      };
-
-      // This aborts due to params mismatch
-      alice.handleIncoming(msg1);
-      expect(alice.getState()).toBe('ABORTED');
-    });
-
-    it('should reject equal seq (replay)', () => {
-      const alice = createHandshakeRuntime({
-        role: 'alice',
-        params: { ...sampleParams, vA: '123' },
-        localNonce: aliceNonce,
-      });
-
-      alice.start();
-
-      // seq 5
-      const msg1 = {
-        type: 'hello',
-        from: 'bob',
-        seq: 5,
-        payload: {
-          handshake: { ...sampleParams, vA: '123' }, // Same params
-          nonce: bobNonce,
-        },
-      };
-
-      // This locks
-      alice.handleIncoming(msg1);
-      expect(alice.getState()).toBe('LOCKED');
     });
   });
 });

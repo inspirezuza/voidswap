@@ -25,6 +25,14 @@ export interface JoinedResponse {
   type: 'joined';
   room: string;
   clientId: string;
+  memberCount: number;
+}
+
+export interface PeerJoined {
+  type: 'peer_joined';
+  room: string;
+  clientId: string;
+  memberCount: number;
 }
 
 export interface MsgBroadcast {
@@ -42,7 +50,7 @@ export interface ErrorResponse {
   message: string;
 }
 
-export type ServerMessage = JoinedResponse | MsgBroadcast | ErrorResponse;
+export type ServerMessage = JoinedResponse | PeerJoined | MsgBroadcast | ErrorResponse;
 
 // ============================================
 // Client State

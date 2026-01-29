@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket, RawData } from 'ws';
 import { randomUUID } from 'crypto';
 import type {
-    ExtendedWebSocket, JoinedResponse,
+    ExtendedWebSocket, JoinedResponse, PeerJoined,
     MsgBroadcast,
     ErrorResponse,
     ErrorCode
@@ -53,14 +53,33 @@ function handleJoin(ws: ExtendedWebSocket, room: string) {
   rooms.get(room)!.add(ws);
   ws.state.joinedRoom = room;
 
-  // Send ack
+  // Compute memberCount
+  const roomClients = rooms.get(room)!;
+  const memberCount = roomClients.size;
+
+  // Send ack to joining client with memberCount
   const response: JoinedResponse = {
     type: 'joined',
     room,
     clientId: ws.state.clientId,
+    memberCount,
   };
   send(ws, response);
-  log('join', { clientId: ws.state.clientId, room });
+
+  // Broadcast peer_joined to all OTHER clients in the room
+  const peerJoinedMsg: PeerJoined = {
+    type: 'peer_joined',
+    room,
+    clientId: ws.state.clientId,
+    memberCount,
+  };
+  for (const client of roomClients) {
+    if (client !== ws) {
+      send(client, peerJoinedMsg);
+    }
+  }
+
+  log('join', { clientId: ws.state.clientId, room, memberCount });
 }
 
 // Handle msg (forward to peers)

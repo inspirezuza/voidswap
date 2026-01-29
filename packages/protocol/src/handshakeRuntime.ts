@@ -75,6 +75,11 @@ export function createHandshakeRuntime(opts: HandshakeRuntimeOptions): Handshake
   let peerParams: HandshakeParams | null = null;
   let peerNonce: string | null = null;
   
+  // Handshake completion flags
+  let seenPeerHello = false;
+  let seenPeerAck = false;
+  let sentLocalAck = false;
+  
   // Anti-replay: track last seq per sender
   const lastSeqBySender: Record<Role, number | null> = {
     alice: null,
@@ -118,12 +123,29 @@ export function createHandshakeRuntime(opts: HandshakeRuntimeOptions): Handshake
   }
 
   // Helper: try to lock session
+  // LOCK only when:
+  // - peerParams && peerNonce are set
+  // - canonical params match
+  // - seenPeerHello === true
+  // - seenPeerAck === true
+  // - sentLocalAck === true
   function tryLock(): RuntimeEvent[] {
     if (state === 'LOCKED' || state === 'ABORTED') {
       return [];
     }
 
+    // Must have peer data
     if (!peerParams || !peerNonce) {
+      return [];
+    }
+
+    // Must have seen both peer hello and peer ack
+    if (!seenPeerHello || !seenPeerAck) {
+      return [];
+    }
+
+    // Must have sent our own ack
+    if (!sentLocalAck) {
       return [];
     }
 
@@ -219,7 +241,6 @@ export function createHandshakeRuntime(opts: HandshakeRuntimeOptions): Handshake
     lastSeqBySender[msg.from] = msg.seq;
 
     // SID validation: before LOCKED, messages should not include sid
-    // (We already returned early if state is LOCKED or ABORTED)
     if (msg.sid) {
       return abort('PROTOCOL_ERROR', 'Unexpected sid in message before session locked');
     }
@@ -228,8 +249,6 @@ export function createHandshakeRuntime(opts: HandshakeRuntimeOptions): Handshake
     recordMessage(msg);
 
     // Handle by type
-    const events: RuntimeEvent[] = [];
-
     switch (msg.type) {
       case 'hello':
         return handleHello(msg);
@@ -242,11 +261,13 @@ export function createHandshakeRuntime(opts: HandshakeRuntimeOptions): Handshake
         // Just log, don't abort
         return [];
     }
-
   }
 
   function handleHello(msg: Message & { type: 'hello' }): RuntimeEvent[] {
     const events: RuntimeEvent[] = [];
+
+    // Mark that we've seen peer hello
+    seenPeerHello = true;
 
     // Store peer data
     peerParams = msg.payload.handshake;
@@ -256,23 +277,33 @@ export function createHandshakeRuntime(opts: HandshakeRuntimeOptions): Handshake
       state = 'GOT_PEER_HELLO';
     }
 
-    // Send hello_ack
-    const ackMsg: Message = {
-      type: 'hello_ack',
-      from: role,
-      seq: seq++,
-      payload: {
-        nonce: localNonce,
-        handshake: params,
-        handshakeHash: hashHandshake(params),
-      },
-    };
+    // Validate params match BEFORE sending ack
+    const localCanonical = canonicalStringify(params);
+    const peerCanonical = canonicalStringify(peerParams);
+    if (localCanonical !== peerCanonical) {
+      return abort('PROTOCOL_ERROR', 'Handshake params mismatch');
+    }
 
-    recordMessage(ackMsg);
-    events.push({ kind: 'NET_OUT', msg: ackMsg });
-    state = 'SENT_ACK';
+    // Send hello_ack ONCE if not already sent
+    if (!sentLocalAck) {
+      const ackMsg: Message = {
+        type: 'hello_ack',
+        from: role,
+        seq: seq++,
+        payload: {
+          nonce: localNonce,
+          handshake: params,
+          handshakeHash: hashHandshake(params),
+        },
+      };
 
-    // Try to lock
+      recordMessage(ackMsg);
+      events.push({ kind: 'NET_OUT', msg: ackMsg });
+      sentLocalAck = true;
+      state = 'SENT_ACK';
+    }
+
+    // Try to lock (will only succeed if we also have seenPeerAck)
     events.push(...tryLock());
 
     return events;
@@ -281,6 +312,9 @@ export function createHandshakeRuntime(opts: HandshakeRuntimeOptions): Handshake
   function handleHelloAck(msg: Message & { type: 'hello_ack' }): RuntimeEvent[] {
     const events: RuntimeEvent[] = [];
 
+    // Mark that we've seen peer ack
+    seenPeerAck = true;
+
     // Store peer nonce if not already known
     if (!peerNonce) {
       peerNonce = msg.payload.nonce;
@@ -288,12 +322,19 @@ export function createHandshakeRuntime(opts: HandshakeRuntimeOptions): Handshake
       return abort('BAD_MESSAGE', 'Nonce mismatch in hello_ack');
     }
 
-    // Store peer params if not already known
+    // Store peer params if not already known; verify if already set
     if (!peerParams) {
       peerParams = msg.payload.handshake;
+    } else {
+      // Verify params match what we received in hello
+      const existingCanonical = canonicalStringify(peerParams);
+      const newCanonical = canonicalStringify(msg.payload.handshake);
+      if (existingCanonical !== newCanonical) {
+        return abort('BAD_MESSAGE', 'Params mismatch between hello and hello_ack');
+      }
     }
 
-    // Try to lock
+    // Try to lock (will only succeed if we also have seenPeerHello and sentLocalAck)
     events.push(...tryLock());
 
     return events;

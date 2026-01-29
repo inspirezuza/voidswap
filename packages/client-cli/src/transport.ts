@@ -11,6 +11,14 @@ export interface RelayJoinedMessage {
   type: 'joined';
   room: string;
   clientId: string;
+  memberCount: number;
+}
+
+export interface RelayPeerJoinedMessage {
+  type: 'peer_joined';
+  room: string;
+  clientId: string;
+  memberCount: number;
 }
 
 export interface RelayMsgMessage {
@@ -26,10 +34,11 @@ export interface RelayErrorMessage {
   message: string;
 }
 
-type RelayMessage = RelayJoinedMessage | RelayMsgMessage | RelayErrorMessage;
+type RelayMessage = RelayJoinedMessage | RelayPeerJoinedMessage | RelayMsgMessage | RelayErrorMessage;
 
 export interface TransportCallbacks {
-  onJoined: (clientId: string) => void;
+  onJoined: (clientId: string, memberCount: number) => void;
+  onPeerJoined?: (clientId: string, memberCount: number) => void;
   onPeerPayload: (payload: unknown) => void;
   onError: (error: Error) => void;
   onClose: () => void;
@@ -65,7 +74,13 @@ export class Transport {
       switch (msg.type) {
         case 'joined':
           this.clientId = msg.clientId;
-          this.callbacks.onJoined(msg.clientId);
+          this.callbacks.onJoined(msg.clientId, msg.memberCount);
+          break;
+
+        case 'peer_joined':
+          if (this.callbacks.onPeerJoined) {
+            this.callbacks.onPeerJoined(msg.clientId, msg.memberCount);
+          }
           break;
 
         case 'msg':

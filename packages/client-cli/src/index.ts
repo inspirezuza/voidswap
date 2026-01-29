@@ -30,6 +30,9 @@ async function main() {
       params = applyTamper(params, args.tamper);
     }
 
+    // Track if handshake has started (wait for peer)
+    let handshakeStarted = false;
+
     // Create handshake handler
     let transport: Transport;
     
@@ -69,14 +72,34 @@ async function main() {
       },
     });
 
+    // Helper: start handshake if not already started
+    function tryStartHandshake(memberCount: number) {
+      if (handshakeStarted) {
+        return;
+      }
+
+      if (memberCount >= 2) {
+        handshakeStarted = true;
+        handshake.start();
+      } else {
+        log(`Waiting for peer... (memberCount=${memberCount})`);
+      }
+    }
+
     // Create transport
     transport = new Transport(args.relay, args.room, {
-      onJoined: (clientId: string) => {
+      onJoined: (clientId: string, memberCount: number) => {
         log(`Connected to relay, clientId=${clientId}`);
-        log(`Joined room: ${args.room}`);
+        log(`Joined room: ${args.room} (members=${memberCount})`);
         
-        // Start handshake
-        handshake.start();
+        // Only start handshake if peer is already present
+        tryStartHandshake(memberCount);
+      },
+      onPeerJoined: (peerId: string, memberCount: number) => {
+        log(`Peer joined: ${peerId} (members=${memberCount})`);
+        
+        // Start handshake when peer arrives
+        tryStartHandshake(memberCount);
       },
       onPeerPayload: (payload: unknown) => {
         handshake.handleIncoming(payload);
