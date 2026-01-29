@@ -199,11 +199,20 @@ Both abort with `Invalid commit hash` or `Template digest mismatch`.
 | Template Sync | ✅ Complete | Deterministic digest verification |
 | Execution Phase | ❌ Not Started | Actual swap execution pending |
 | Refund Phase | ❌ Not Started | Timelock-based refund pending |
+| Idempotency | ✅ Complete | Duplicate messages handled safely |
+| Transcript Stability | ✅ Complete | Hash unchanged under resend |
 
 ### Mock Components (to be replaced with real crypto)
 
-1. **`mockKeygen.ts`** - Deterministic Ethereum addresses (not real 2-of-2 MPC)
-2. **`mockTlock.ts`** - Placeholder ciphertext (not real drand encryption)
-3. **`mockZkCapsule.ts`** - Always-valid proofs (not real ZK-SNARK)
+1. **`mockKeygen.ts`** - Deterministic Ethereum addresses (sha1) and commitments (sha256)
+2. **`mockTlock.ts`** - Deterministic ciphertext/proof using `canonicalStringify`
+3. **`mockYShare`** - Deterministic Y-share commitments for capsule exchange
 
 These mocks allow testing the protocol flow without the full cryptographic stack.
+
+### Protocol Robustness
+
+- **Idempotency**: Duplicate resends (same seq) are ignored without aborting
+- **Anti-Replay**: Out-of-order messages (seq < lastSeq) are rejected
+- **Transcript Stability**: Duplicate messages do not modify the transcript hash
+
