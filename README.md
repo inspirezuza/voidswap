@@ -69,6 +69,12 @@ Alice                         Relay                           Bob
   [SESSION_LOCKED sid=xxx]                        [SESSION_LOCKED sid=xxx]
 ```
 
+### Nonce Format
+Nonces must be exactly 32 bytes in 0x-prefixed lowercase hex:
+- Format: `0x` + 64 lowercase hex characters
+- Example: `0xa1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4`
+- Generated using `crypto.randomBytes(32)`
+
 ## Development
 
 ```bash

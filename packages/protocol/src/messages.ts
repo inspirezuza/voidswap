@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod';
+import { Hex32Schema } from './hex.js';
 
 // ============================================
 // Handshake Parameters
@@ -22,9 +23,10 @@ const DecimalStringSchema = z.string().regex(/^\d+$/, 'Must be a decimal string 
 const EthAddressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'Must be a valid Ethereum address');
 
 /**
- * 32-byte hex nonce pattern: 0x followed by 64 hex characters
+ * 32-byte hex nonce: 0x + 64 lowercase hex chars
+ * Uses Hex32Schema from hex.ts for strict validation
  */
-const NonceSchema = z.string().regex(/^0x[0-9a-fA-F]{64}$/, 'Must be a 32-byte hex string (0x + 64 hex chars)');
+const NonceSchema = Hex32Schema;
 
 /**
  * HandshakeParams defines the core parameters for a voidswap session.

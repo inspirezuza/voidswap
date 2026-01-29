@@ -5,10 +5,10 @@
  */
 
 import {
-    computeSid,
-    hashHandshake,
-    validateRefundOrder,
-    type HandshakeParams,
+  computeSid,
+  hashHandshake,
+  validateRefundOrder,
+  type HandshakeParams,
 } from '../src/index.js';
 
 // Sample handshake parameters
@@ -24,9 +24,11 @@ const handshake: HandshakeParams = {
   rARefund: 2000, // Alice's refund round
 };
 
-// Sample nonces (in real usage, these would be cryptographically random)
-const aliceNonce = '0x' + 'a1b2c3d4e5f6'.repeat(10) + 'a1b2c3d4';
-const bobNonce = '0x' + 'f6e5d4c3b2a1'.repeat(10) + 'f6e5d4c3';
+// Sample nonces - MUST be 32 bytes (0x + 64 lowercase hex chars)
+// In real usage, these MUST be cryptographically random using crypto.randomBytes(32)
+// Format: 0x + 64 hex chars = 66 chars total = 32 bytes
+const aliceNonce = '0x' + 'a1b2c3d4'.repeat(8); // 8 * 8 = 64 hex chars = 32 bytes
+const bobNonce = '0x' + 'f6e5d4c3'.repeat(8);   // 8 * 8 = 64 hex chars = 32 bytes
 
 console.log('='.repeat(60));
 console.log('Voidswap SID Computation Example');
@@ -35,9 +37,10 @@ console.log('='.repeat(60));
 console.log('\n📋 Handshake Parameters:');
 console.log(JSON.stringify(handshake, null, 2));
 
-console.log('\n🎲 Nonces:');
+console.log('\n🎲 Nonces (32 bytes each):');
 console.log(`  Alice: ${aliceNonce}`);
 console.log(`  Bob:   ${bobNonce}`);
+console.log(`  Length check: ${aliceNonce.length} chars (expected 66)`);
 
 console.log('\n🔐 Computed Values:');
 console.log(`  Handshake Hash: ${hashHandshake(handshake)}`);

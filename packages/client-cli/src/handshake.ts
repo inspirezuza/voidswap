@@ -36,14 +36,14 @@ export interface HandshakeCallbacks {
 }
 
 /**
- * Generate a 32-byte random nonce as hex string (0x + 64 hex chars)
+ * Generate a 32-byte random nonce as hex string (0x + 64 lowercase hex chars)
  */
 export function makeNonce32(): string {
   const bytes = randomBytes(32);
-  const hex = '0x' + bytes.toString('hex');
+  const hex = '0x' + bytes.toString('hex'); // toString('hex') always produces lowercase
   
-  // Runtime assertion
-  if (!/^0x[0-9a-f]{64}$/i.test(hex)) {
+  // Runtime assertion - strict lowercase validation
+  if (!/^0x[0-9a-f]{64}$/.test(hex)) {
     throw new Error(`Generated nonce does not match expected format: ${hex}`);
   }
   

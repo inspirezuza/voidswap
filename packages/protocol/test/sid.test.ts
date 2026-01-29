@@ -110,6 +110,32 @@ describe('computeSid', () => {
     
     expect(sid1).not.toBe(sid2);
   });
+
+  // Nonce validation tests
+  it('should reject nonce with wrong length (too short)', () => {
+    const shortNonce = '0x' + 'a'.repeat(62); // 31 bytes
+    expect(() => computeSid(sampleParams, shortNonce, bobNonce)).toThrow('32 bytes');
+  });
+
+  it('should reject nonce with wrong length (too long)', () => {
+    const longNonce = '0x' + 'a'.repeat(66); // 33 bytes
+    expect(() => computeSid(sampleParams, longNonce, bobNonce)).toThrow('32 bytes');
+  });
+
+  it('should reject uppercase hex in nonce', () => {
+    const uppercaseNonce = '0x' + 'A'.repeat(64);
+    expect(() => computeSid(sampleParams, uppercaseNonce, bobNonce)).toThrow('lowercase');
+  });
+
+  it('should reject nonce without 0x prefix', () => {
+    const noPrefixNonce = 'a'.repeat(64);
+    expect(() => computeSid(sampleParams, noPrefixNonce, bobNonce)).toThrow('0x prefix');
+  });
+
+  it('should reject nonce with invalid hex characters', () => {
+    const invalidNonce = '0x' + 'g'.repeat(64); // 'g' is not hex
+    expect(() => computeSid(sampleParams, invalidNonce, bobNonce)).toThrow('lowercase hex');
+  });
 });
 
 describe('hashHandshake', () => {

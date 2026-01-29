@@ -37,6 +37,14 @@ export {
   hashHandshake,
 } from './sid.js';
 
+// Hex validation
+export {
+  isHexPrefixed,
+  assertHex32,
+  Hex32Schema,
+  type Hex32,
+} from './hex.js';
+
 // Transcript helpers
 export {
   appendRecord,

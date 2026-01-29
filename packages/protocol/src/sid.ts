@@ -12,6 +12,7 @@
 
 import { createHash } from 'crypto';
 import { canonicalStringify } from './canonical.js';
+import { assertHex32 } from './hex.js';
 import type { HandshakeParams } from './messages.js';
 
 /**
@@ -25,15 +26,20 @@ function sha256Hex(data: string): string {
  * Compute the Session ID from handshake parameters and both parties' nonces.
  * 
  * @param params - Agreed handshake parameters
- * @param nonceAlice - Alice's 32-byte hex nonce (0x + 64 hex chars)
- * @param nonceBob - Bob's 32-byte hex nonce (0x + 64 hex chars)
+ * @param nonceAlice - Alice's 32-byte hex nonce (0x + 64 lowercase hex chars)
+ * @param nonceBob - Bob's 32-byte hex nonce (0x + 64 lowercase hex chars)
  * @returns 64-character lowercase hex string (no 0x prefix)
+ * @throws Error if nonces are not valid 32-byte lowercase hex
  */
 export function computeSid(
   params: HandshakeParams,
   nonceAlice: string,
   nonceBob: string
 ): string {
+  // Validate nonces are proper 32-byte lowercase hex
+  assertHex32('nonceAlice', nonceAlice);
+  assertHex32('nonceBob', nonceBob);
+
   const sidInput = {
     version: 'voidswap-sid-v1',
     handshake: params,
