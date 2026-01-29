@@ -89,7 +89,22 @@ Alice                         Relay                           Bob
   |                            |<------- keygen_announce ------|
   |<--- keygen_announce -------|                               |
   |                            |                               |
+  |                            |                               |
   [KEYGEN_COMPLETE mpc=OK]          [KEYGEN_COMPLETE mpc=OK]
+  |                            |                               |
+  |--- capsule_offer --------->|                               |
+  |                            |--- capsule_offer ------------>|
+  |                            |                               |
+  |                            |<------- capsule_offer --------|
+  |<--- capsule_offer ---------|                               |
+  |                            |                               |
+  |--- capsule_ack ----------->|                               |
+  |                            |--- capsule_ack -------------->|
+  |                            |                               |
+  |                            |<------- capsule_ack ----------|
+  |<--- capsule_ack -----------|                               |
+  |                            |                               |
+  [CAPSULES_VERIFIED]              [CAPSULES_VERIFIED]
 ```
 
 ### Nonce Format
@@ -127,3 +142,17 @@ pnpm -C packages/client-cli dev -- --role bob --room test --tamper vA
 ```
 
 Both should abort with `Handshake params mismatch`.
+
+## Capsule Tamper Test
+
+Test that invalid proof is detected:
+
+```bash
+# Bob (tamper capsule fake proof)
+pnpm -C packages/client-cli dev -- --role bob --room tamper --tamperCapsule
+
+# Alice (verifies)
+pnpm -C packages/client-cli dev -- --role alice --room tamper
+```
+
+Alice should abort with `PROTOCOL_ERROR: Invalid capsule proof`.

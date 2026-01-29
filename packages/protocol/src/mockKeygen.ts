@@ -1,8 +1,7 @@
 /**
- * Mock Keygen Utility
+ * Mock Keygen Utility (Updated for Capsule Exchange)
  * 
- * Deterministically generates mock MPC addresses and commitments based on the session ID.
- * This simulates a real MPC keygen process for protocol testing purposes.
+ * Deterministically generates mock MPC addresses AND yShare commitments.
  */
 
 import { createHash } from 'crypto';
@@ -10,9 +9,6 @@ import type { Role, MpcResult } from './messages.js';
 
 /**
  * Generate a determinstic mock MPC result for a given role and SID.
- * 
- * The output depends on ANY change to SID, ensuring that different sessions
- * yield different addresses/keys.
  */
 export function mockKeygen(sid: string, targetRole: Role): MpcResult {
   // Helper to generate deterministic hex string
@@ -20,13 +16,6 @@ export function mockKeygen(sid: string, targetRole: Role): MpcResult {
     const hash = createHash('sha256')
       .update(`${sid}:${targetRole}:${discriminator}`)
       .digest('hex');
-    // Ensure we fill the requested length (repeat hash if needed, but for now 64 chars is enough for 40/66)
-    // Actually valid addresses are 40 chars, commitments 66.
-    // SHA256 is 64 chars (32 bytes).
-    // Let's chain hashes for longer strings if needed, or just use simpler logic since it's a mock.
-    
-    // For 33 byte commitment (66 hex chars), we need more than one SHA256 (64 hex).
-    // Let's just extend it.
     const hash2 = createHash('sha256').update(hash).digest('hex');
     return (hash + hash2).substring(0, length);
   }
@@ -40,4 +29,28 @@ export function mockKeygen(sid: string, targetRole: Role): MpcResult {
       peer: '0x' + deriveHex('comm_peer', 66),
     },
   };
+}
+
+/**
+ * Generate a deterministic yShare commitment for Capsule Exchange.
+ * 
+ * yShare is the public key share that the capsule is encrypted against.
+ * 
+ * which: 
+ * - 'Y_Ab': Bob's share of MPC_Alice (Alice holds key, Bob verifies) - Wait, protocol logic:
+ *   Refund MPC for Alice (mpc_Alice) is controlled by Alice + Bob.
+ *   If protocol aborts, Bob sends capsule to Alice.
+ *   Capsule encrypts "Bob's share secret" towards "Alice's share pubkey"? 
+ *   No, usually capsule is encrypted towards a public key.
+ *   
+ *   Let's keep it abstract:
+ *   mockYShare(sid, "refund_mpc_Alice") -> returns the Y share relevant for refunding Alice.
+ */
+export function mockYShare(sid: string, purpose: 'refund_mpc_Alice' | 'refund_mpc_Bob'): string {
+   const hash = createHash('sha256')
+     .update(`${sid}:yShare:${purpose}`)
+     .digest('hex');
+   // Extend to 66 chars
+   const hash2 = createHash('sha256').update(hash).digest('hex');
+   return '0x' + (hash + hash2).substring(0, 66);
 }

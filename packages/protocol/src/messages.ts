@@ -187,6 +187,51 @@ export const KeygenAnnounceMessageSchema = BaseMessageSchema.extend({
 export type KeygenAnnounceMessage = z.infer<typeof KeygenAnnounceMessageSchema>;
 
 // ============================================
+// Capsule Offer Message (Mock SP3/SP4)
+// ============================================
+
+export const CapsuleRoleSchema = z.enum(['refund_mpc_Alice', 'refund_mpc_Bob']);
+
+// Mock yShare: 33 bytes (compressed pubkey) in hex
+export const YShareSchema = z.string().regex(/^0x[0-9a-fA-F]{66}$/, 'Must be a valid 33-byte hex yShare');
+// Mock Ciphertext/Proof: hex string >= 1 byte
+export const HexStringSchema = z.string().regex(/^0x[0-9a-fA-F]{2,}$/, 'Must be a valid hex string');
+
+export const CapsuleOfferPayloadSchema = z.object({
+  role: CapsuleRoleSchema,
+  refundRound: z.number().int().nonnegative(),
+  yShare: YShareSchema,
+  ct: HexStringSchema,
+  proof: HexStringSchema,
+});
+
+export const CapsuleOfferMessageSchema = BaseMessageSchema.extend({
+  type: z.literal('capsule_offer'),
+  sid: z.string(), // Required
+  payload: CapsuleOfferPayloadSchema,
+});
+
+export type CapsuleOfferMessage = z.infer<typeof CapsuleOfferMessageSchema>;
+
+// ============================================
+// Capsule Ack Message
+// ============================================
+
+export const CapsuleAckPayloadSchema = z.object({
+  role: CapsuleRoleSchema,
+  ok: z.boolean(),
+  reason: z.string().optional(),
+});
+
+export const CapsuleAckMessageSchema = BaseMessageSchema.extend({
+  type: z.literal('capsule_ack'),
+  sid: z.string(), // Required
+  payload: CapsuleAckPayloadSchema,
+});
+
+export type CapsuleAckMessage = z.infer<typeof CapsuleAckMessageSchema>;
+
+// ============================================
 // Union Message Type
 // ============================================
 
@@ -194,6 +239,8 @@ export const MessageSchema = z.discriminatedUnion('type', [
   HelloMessageSchema,
   HelloAckMessageSchema,
   KeygenAnnounceMessageSchema,
+  CapsuleOfferMessageSchema,
+  CapsuleAckMessageSchema,
   AbortMessageSchema,
   ErrorMessageSchema,
 ]);

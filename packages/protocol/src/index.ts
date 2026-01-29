@@ -62,9 +62,9 @@ export {
 } from './handshakeRuntime.js';
 
 // Keygen helpers
-export { mockKeygen } from './mockKeygen.js';
+export { mockKeygen, mockYShare } from './mockKeygen.js';
 
-// Session runtime (Handshake + Keygen)
+// Session runtime (Handshake + Keygen + Capsules)
 export {
   createSessionRuntime,
   type SessionRuntime,
@@ -76,4 +76,10 @@ export {
 export {
   type MpcResult,
   type KeygenAnnounceMessage,
+  type CapsuleOfferMessage,
+  type CapsuleAckMessage,
 } from './messages.js';
+
+// Mock Crypto (for testing or advanced usage)
+export { mockTlockEncrypt } from './mockTlock.js';
+export { mockProveCapsule, mockVerifyCapsule } from './mockZkCapsule.js';

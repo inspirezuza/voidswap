@@ -37,6 +37,12 @@ transcriptHash=<same-64-char-hex>
 Alice Address: 0x...
 Bob Address:   0x...
 ============================================================
+
+STATE: CAPSULES_VERIFIED
+sid=<same-64-char-hex>
+transcriptHash=<same-64-char-hex>
+============================================================
+REFUND CAPSULES EXCHANGED AND VERIFIED. SECURE TO FUND.
 ```
 
 ## Tamper Test (Mismatch Detection)
@@ -69,3 +75,4 @@ Expected: Both abort with `Handshake params mismatch`
 | `--rBRefund` | No | `1000` | Bob's refund round |
 | `--rARefund` | No | `2000` | Alice's refund round |
 | `--tamper` | No | `none` | Tamper field for testing: `vA`, `targetAlice`, `none` |
+| `--tamperCapsule` | No | `false` | Corrupts outgoing capsule proof (security test) |

@@ -15,6 +15,7 @@ export interface CliArgs {
   relay: string;
   params: HandshakeParams;
   tamper: TamperField;
+  tamperCapsule: boolean;
 }
 
 /**
@@ -108,6 +109,9 @@ export function parseArgs(argv: string[]): CliArgs {
     throw new Error('--room is required');
   }
 
+  // Check for tamperCapsule flag
+  const tamperCapsule = argv.includes('--tamperCapsule');
+
   // Build and validate HandshakeParams
   const params = HandshakeParamsSchema.parse({
     version: 'voidswap-v1',
@@ -121,7 +125,7 @@ export function parseArgs(argv: string[]): CliArgs {
     rARefund,
   });
 
-  return { role, room, relay, params, tamper };
+  return { role, room, relay, params, tamper, tamperCapsule };
 }
 
 /**

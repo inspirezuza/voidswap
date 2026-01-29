@@ -48,7 +48,7 @@ async function main() {
         log(`transcriptHash=${transcriptHash}`);
         log('='.repeat(60));
         log('');
-        // Handshake locked, proceed to Keygen automatically (handled by SessionRuntime)
+        // Handshake locked, proceed to Keygen automatically
       },
       onKeygenComplete: (sid: string, transcriptHash: string, mpcAlice: MpcResult, mpcBob: MpcResult) => {
         log('');
@@ -61,7 +61,18 @@ async function main() {
         log(`Bob Address:   ${mpcBob.address}`);
         log('='.repeat(60));
         log('');
-        
+        // Keygen complete, proceed to Capsules automatically
+      },
+      onCapsulesVerified: (sid: string, transcriptHash: string) => {
+        log('');
+        log('='.repeat(60));
+        log(`STATE: CAPSULES_VERIFIED`);
+        log(`sid=${sid}`);
+        log(`transcriptHash=${transcriptHash}`);
+        log('='.repeat(60));
+        log('REFUND CAPSULES EXCHANGED AND VERIFIED. SECURE TO FUND.');
+        log('');
+
         // Exit after a short delay
         setTimeout(() => {
           transport.close();
@@ -83,7 +94,7 @@ async function main() {
       onLog: (message: string) => {
         log(message);
       },
-    });
+    }, args.tamperCapsule);
 
     // Helper: start handshake if not already started
     function tryStartHandshake(memberCount: number) {

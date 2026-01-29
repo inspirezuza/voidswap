@@ -21,6 +21,7 @@ export interface SessionCallbacks {
   onSendMessage: (msg: Message) => void;
   onLocked: (sid: string, transcriptHash: string) => void;
   onKeygenComplete: (sid: string, transcriptHash: string, mpcAlice: MpcResult, mpcBob: MpcResult) => void;
+  onCapsulesVerified: (sid: string, transcriptHash: string) => void;
   onAbort: (code: string, message: string) => void;
   onLog: (message: string) => void;
 }
@@ -51,7 +52,8 @@ export class Session {
   constructor(
     role: Role,
     params: HandshakeParams,
-    callbacks: SessionCallbacks
+    callbacks: SessionCallbacks,
+    tamperCapsule = false // Optional flag
   ) {
     this.role = role;
     this.callbacks = callbacks;
@@ -62,6 +64,7 @@ export class Session {
       role,
       params,
       localNonce,
+      tamperCapsule,
     });
   }
 
@@ -98,6 +101,9 @@ export class Session {
           break;
         case 'KEYGEN_COMPLETE':
           this.callbacks.onKeygenComplete(event.sid, event.transcriptHash, event.mpcAlice, event.mpcBob);
+          break;
+        case 'CAPSULES_VERIFIED':
+          this.callbacks.onCapsulesVerified(event.sid, event.transcriptHash);
           break;
         case 'ABORTED':
           this.callbacks.onAbort(event.code, event.message);
