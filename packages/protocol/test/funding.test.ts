@@ -242,5 +242,68 @@ describe('Funding Phase', () => {
         // the test to capture LOCKED event. But we can verify there ARE post-handshake
         // records being included by checking getTranscriptHash() differs between states.
     });
+
+    it('should ignore any "which" field in emitFundingTx input (security)', () => {
+        const { alice, bob } = setupCapsulesVerified();
+        
+        expect(alice.getState()).toBe('FUNDING');
+        
+        // Simulate a malicious caller trying to pass "which" to override role
+        // We use "as any" to bypass TypeScript since the interface shouldn't allow it
+        const maliciousInput = {
+            txHash: '0x' + '1'.repeat(64),
+            fromAddress: '0x' + 'a'.repeat(40),
+            toAddress: '0x' + 'b'.repeat(40),
+            valueWei: '1000',
+            which: 'mpc_Bob' // Attacker tries to claim they're Bob when they're Alice
+        } as any;
+        
+        const events = alice.emitFundingTx(maliciousInput);
+        
+        // Find the NET_OUT event
+        const netOut = events.find(e => e.kind === 'NET_OUT');
+        expect(netOut).toBeDefined();
+        
+        const msg = (netOut as any).msg;
+        expect(msg.type).toBe('funding_tx');
+        
+        // The payload.which MUST be mpc_Alice (derived from alice's role), 
+        // NOT mpc_Bob (the malicious input)
+        expect(msg.payload.which).toBe('mpc_Alice');
+    });
+
+    it('should not change transcriptHash on duplicate funding_tx (idempotent)', () => {
+        const { alice, bob } = setupCapsulesVerified();
+        
+        expect(alice.getState()).toBe('FUNDING');
+        expect(bob.getState()).toBe('FUNDING');
+
+        const mpcAddrs = alice.getMpcAddresses()!;
+        
+        // Alice emits funding tx
+        const aliceFundingEvents = alice.emitFundingTx({
+            txHash: '0x' + '1'.repeat(64),
+            fromAddress: '0x' + 'a'.repeat(40),
+            toAddress: mpcAddrs.mpcAlice,
+            valueWei: '1000',
+        });
+        
+        const aliceMsg = aliceFundingEvents.find(e => e.kind === 'NET_OUT');
+        expect(aliceMsg).toBeDefined();
+
+        // Bob receives first funding_tx
+        bob.handleIncoming((aliceMsg as any).msg);
+        const hashAfterFirst = bob.getTranscriptHash();
+        const stateAfterFirst = bob.getState();
+
+        // Bob receives the SAME funding_tx again (with higher seq to pass anti-replay)
+        const duplicateMsg = { ...(aliceMsg as any).msg, seq: (aliceMsg as any).msg.seq + 1 };
+        const duplicateEvents = bob.handleIncoming(duplicateMsg);
+
+        // Should return empty (idempotent) and transcript hash unchanged
+        expect(duplicateEvents).toEqual([]);
+        expect(bob.getTranscriptHash()).toBe(hashAfterFirst);
+        expect(bob.getState()).toBe(stateAfterFirst);
+    });
 });
 

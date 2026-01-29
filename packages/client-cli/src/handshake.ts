@@ -155,14 +155,13 @@ export class Session {
   }
 
   emitFundingTx(tx: { txHash: string; fromAddress: string; toAddress: string; valueWei: string }) {
-      const payload = {
-          which: this.role === 'alice' ? 'mpc_Alice' : 'mpc_Bob' as const,
+      // Pass only the required fields - runtime derives "which" from role
+      const events = this.runtime.emitFundingTx({
           txHash: tx.txHash,
           fromAddress: tx.fromAddress,
           toAddress: tx.toAddress,
           valueWei: tx.valueWei
-      };
-      const events = this.runtime.emitFundingTx(payload);
+      });
       this.processEvents(events);
   }
 

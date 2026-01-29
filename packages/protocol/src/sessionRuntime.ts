@@ -255,9 +255,16 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
       if (capsuleReceived && capsuleAcked) {
           state = 'CAPSULES_VERIFIED';
           
+          // Emit CAPSULES_VERIFIED event first
+          const verifiedEv: SessionEvent = {
+              kind: 'CAPSULES_VERIFIED',
+              sid: sid!,
+              transcriptHash: getFullTranscriptHash()
+          };
+          
           // Auto-transition to FUNDING
           state = 'FUNDING';
-          const ev: SessionEvent = { 
+          const fundingEv: SessionEvent = { 
               kind: 'FUNDING_STARTED', 
               sid: sid!,
               mpcAliceAddr: role === 'alice' ? localMpc.address : peerMpc.address,
@@ -265,7 +272,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
               vA: params.vA,
               vB: params.vB
           };
-          return [ev];
+          return [verifiedEv, fundingEv];
       }
       return [];
   }
@@ -399,7 +406,8 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
         }
         lastPostSeqBySender[msg.from] = msg.seq;
         
-        recordPost(msg);
+        // NOTE: recordPost is called in state-specific handlers AFTER validation
+        // to ensure transcript only contains accepted messages
     }
 
     // Global Keygen Consistency Check
@@ -442,6 +450,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
             }
             
             fundingTxByWhich[which] = msg.payload;
+            recordPost(msg); // Record AFTER validation
             // Emit FUNDING_TX_SEEN event before checking completion
             const events: SessionEvent[] = [{ kind: 'FUNDING_TX_SEEN', sid: sid!, payload: msg.payload }];
             events.push(...checkFundingComplete());
@@ -474,6 +483,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
       }
       
       peerMpc = peerMpcData; 
+      recordPost(msg); // Record AFTER validation
       
       return checkKeygenComplete();
     }
@@ -529,6 +539,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
               return emitAbort('PROTOCOL_ERROR', 'Invalid capsule proof');
           }
           
+          recordPost(msg); // Record incoming capsule_offer AFTER validation
           capsuleReceived = true;
           const ack: CapsuleAckMessage = {
              type: 'capsule_ack',
@@ -552,6 +563,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
              return emitAbort('PROTOCOL_ERROR', `Peer rejected capsule: ${msg.payload.reason}`);
           }
           
+          recordPost(msg); // Record incoming capsule_ack AFTER validation
           capsuleAcked = true;
           return checkCapsulesVerified();
       }
@@ -572,6 +584,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
             }
             
             peerNonces = msg.payload;
+            recordPost(msg); // Record AFTER validation
             return checkExecReady();
         }
         
@@ -587,6 +600,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
             
             // Store and compute hash for ack
             feeParams = msg.payload;
+            recordPost(msg); // Record incoming fee_params AFTER validation
             const hash = createHash('sha256')
                 .update(canonicalStringify(msg.payload), 'utf8')
                 .digest('hex');
@@ -632,6 +646,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
                 return emitAbort('PROTOCOL_ERROR', `Fee params rejected: ${msg.payload.reason}`);
             }
             
+            recordPost(msg); // Record incoming fee_params_ack AFTER validation
             feeAcked = true;
             return checkExecReady();
         }
@@ -645,7 +660,10 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
           return emitAbort('PROTOCOL_ERROR', 'Cannot emit funding tx outside FUNDING state');
       }
       
+      // Explicitly destructure to prevent any "which" override from input
+      const { txHash, fromAddress, toAddress, valueWei } = tx;
       const which = role === 'alice' ? 'mpc_Alice' : 'mpc_Bob';
+      
       const msg: FundingTxMessage = {
           type: 'funding_tx',
           from: role,
@@ -653,7 +671,10 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
           sid: sid!,
           payload: {
               which,
-              ...tx
+              txHash,
+              fromAddress,
+              toAddress,
+              valueWei
           }
       };
       

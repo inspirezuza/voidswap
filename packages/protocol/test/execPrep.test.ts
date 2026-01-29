@@ -236,4 +236,34 @@ describe('EXEC_PREP Phase', () => {
         expect(abortEvent).toBeDefined();
         expect(bob.getState()).toBe('ABORTED');
     });
+
+    it('should not change transcriptHash on duplicate nonce_report (idempotent)', () => {
+        const { alice, bob } = setupExecPrep();
+
+        const nonceReport: NonceReportPayload = {
+            mpcAliceNonce: '0',
+            mpcBobNonce: '0',
+            blockNumber: '12345',
+            rpcTag: 'latest',
+        };
+
+        // Alice sends nonce report
+        const aliceNonceEvents = alice.setLocalNonceReport(nonceReport);
+        const aliceMsg = getNetOutMsgs(aliceNonceEvents).find(m => m.type === 'nonce_report');
+        expect(aliceMsg).toBeDefined();
+
+        // Bob receives first nonce_report
+        bob.handleIncoming(aliceMsg!);
+        const hashAfterFirst = bob.getTranscriptHash();
+        const stateAfterFirst = bob.getState();
+
+        // Bob receives the SAME nonce_report again (with higher seq to pass anti-replay)
+        const duplicateMsg = { ...aliceMsg!, seq: (aliceMsg as any).seq + 1 };
+        const duplicateEvents = bob.handleIncoming(duplicateMsg);
+
+        // Should return empty (idempotent) and transcript hash unchanged
+        expect(duplicateEvents).toEqual([]);
+        expect(bob.getTranscriptHash()).toBe(hashAfterFirst);
+        expect(bob.getState()).toBe(stateAfterFirst);
+    });
 });
