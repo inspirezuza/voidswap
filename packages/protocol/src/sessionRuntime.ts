@@ -644,6 +644,11 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
               return emitAbort('PROTOCOL_ERROR', 'Invalid capsule proof');
           }
           
+          // Idempotency check
+          if (capsuleReceived) {
+              return []; // Already received and acked
+          }
+          
           recordPost(msg); // Record incoming capsule_offer AFTER validation
           capsuleReceived = true;
           const ack: CapsuleAckMessage = {
@@ -666,6 +671,11 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
           
           if (!msg.payload.ok) {
              return emitAbort('PROTOCOL_ERROR', `Peer rejected capsule: ${msg.payload.reason}`);
+          }
+          
+          // Idempotency check
+          if (capsuleAcked) {
+              return []; // Already acked
           }
           
           recordPost(msg); // Record incoming capsule_ack AFTER validation
@@ -701,6 +711,16 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
             
             if (msg.payload.proposer !== 'alice' || msg.payload.mode !== 'fixed') {
                 return emitAbort('PROTOCOL_ERROR', 'Invalid fee_params proposal');
+            }
+            
+            // Idempotency check
+            if (feeParams) {
+                const stored = canonicalStringify(feeParams);
+                const received = canonicalStringify(msg.payload);
+                if (stored !== received) {
+                    return emitAbort('PROTOCOL_ERROR', 'Conflicting fee_params');
+                }
+                return []; // Idempotent
             }
             
             // Store and compute hash for ack
@@ -749,6 +769,11 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
             
             if (!msg.payload.ok) {
                 return emitAbort('PROTOCOL_ERROR', `Fee params rejected: ${msg.payload.reason}`);
+            }
+            
+            // Idempotency check
+            if (feeAcked) {
+                return []; // Already acked
             }
             
             recordPost(msg); // Record incoming fee_params_ack AFTER validation
