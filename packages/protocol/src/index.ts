@@ -51,3 +51,12 @@ export {
   transcriptHash,
   type TranscriptRecord,
 } from './transcript.js';
+
+// Handshake runtime
+export {
+  createHandshakeRuntime,
+  type HandshakeRuntime,
+  type HandshakeRuntimeOptions,
+  type HandshakeState,
+  type RuntimeEvent,
+} from './handshakeRuntime.js';

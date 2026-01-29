@@ -37,11 +37,12 @@ async function main() {
       onSendMessage: (msg: Message) => {
         transport.sendPayload(msg);
       },
-      onLocked: (sid: string) => {
+      onLocked: (sid: string, transcriptHash: string) => {
         log('');
         log('='.repeat(60));
         log(`STATE: SESSION_LOCKED`);
         log(`sid=${sid}`);
+        log(`transcriptHash=${transcriptHash}`);
         log('='.repeat(60));
         log('');
         
