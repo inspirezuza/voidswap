@@ -7,8 +7,8 @@
 import { parseArgs, applyTamper } from './cli.js';
 import { Transport } from './transport.js';
 import { Session } from './handshake.js';
-import type { Message, MpcResult } from '@voidswap/protocol';
-import { createClients, sendEthTransfer, waitConfirmations } from './chain.js';
+import type { Message, MpcResult, FundingTxPayload } from '@voidswap/protocol';
+import { createClients, sendEthTransfer, validateFundingTx } from './chain.js';
 import { formatEther } from 'viem';
 
 function log(message: string) {
@@ -105,13 +105,18 @@ async function main() {
                   const hash = await sendEthTransfer(walletClient, to as `0x${string}`, value);
                   log(`Funding Tx Sent: ${hash}`);
                   
-                  // Notify Runtime
-                  session.emitFundingTx(hash);
+                  // Notify Runtime with real payload
+                  session.emitFundingTx({
+                      txHash: hash,
+                      fromAddress: funderAddress,
+                      toAddress: to,
+                      valueWei: value.toString()
+                  });
                   
-                  // Watch for own confirmation
-                  log(`Waiting for ${args.confirmations} confirmations...`);
-                  await waitConfirmations(publicClient, hash, args.confirmations);
-                  log(`My funding confirmed.`);
+                  // Validate and wait for own confirmation
+                  log(`Validating own funding tx and waiting for ${args.confirmations} confirmations...`);
+                  await validateFundingTx(publicClient, hash, to, value, args.confirmations);
+                  log(`My funding validated and confirmed.`);
                   
                   // Notify runtime
                   session.notifyFundingConfirmed(args.role === 'alice' ? 'mpc_Alice' : 'mpc_Bob');
@@ -127,19 +132,30 @@ async function main() {
                 // The prompt says: "If not autoFund: print instructions... We can skip manual completion for now".
             }
         },
-        onFundingTx: async (which: 'mpc_Alice' | 'mpc_Bob', txHash: string) => {
+        onFundingTx: async (which: 'mpc_Alice' | 'mpc_Bob', txHash: string, payload: FundingTxPayload) => {
              log(`Peer announced funding tx: ${txHash} for ${which}`);
+             log(`  from: ${payload.fromAddress}`);
+             log(`  to:   ${payload.toAddress}`);
+             log(`  value: ${formatEther(BigInt(payload.valueWei))} ETH`);
              
              try {
                  const { publicClient } = createClients(args.rpcUrl);
-                 log(`Watching peer tx ${txHash} for ${args.confirmations} confirmations...`);
+                 const expectedTo = payload.toAddress;
+                 const minValue = BigInt(payload.valueWei);
                  
-                 await waitConfirmations(publicClient, txHash as `0x${string}`, args.confirmations);
-                 log(`Peer funding confirmed.`);
+                 log(`Validating peer tx on-chain...`);
+                 await validateFundingTx(
+                     publicClient, 
+                     txHash as `0x${string}`, 
+                     expectedTo, 
+                     minValue, 
+                     args.confirmations
+                 );
+                 log(`Peer funding validated and confirmed.`);
                  
                  session.notifyFundingConfirmed(which);
              } catch (err: any) {
-                 log(`Error watching peer funding: ${err.message}`);
+                 log(`Error validating peer funding: ${err.message}`);
                  process.exit(1);
              }
         },

@@ -15,6 +15,7 @@ import {
     type Role,
     type SessionState,
     type MpcResult,
+    type FundingTxPayload,
 } from '@voidswap/protocol';
 
 export interface SessionCallbacks {
@@ -24,7 +25,7 @@ export interface SessionCallbacks {
   onCapsulesVerified: (sid: string, transcriptHash: string) => void;
   onAbort: (code: string, message: string) => void;
   onFundingStarted: (sid: string, mpcAlice: string, mpcBob: string, vA: string, vB: string) => void;
-  onFundingTx: (which: 'mpc_Alice' | 'mpc_Bob', txHash: string) => void;
+  onFundingTx: (which: 'mpc_Alice' | 'mpc_Bob', txHash: string, payload: FundingTxPayload) => void;
   onFunded: (sid: string, transcriptHash: string) => void;
   onLog: (message: string) => void;
 }
@@ -84,14 +85,7 @@ export class Session {
    * Handle incoming message from peer
    */
   handleIncoming(payload: unknown) {
-    // Spy on payload to detect funding_tx
-    if (typeof payload === 'object' && payload !== null && 'type' in payload) {
-        const p = payload as any;
-        if (p.type === 'funding_tx' && p.payload && p.payload.txHash && p.payload.which) {
-            this.callbacks.onFundingTx(p.payload.which, p.payload.txHash);
-        }
-    }
-    
+    // No pre-parse spy - let runtime validate and emit FUNDING_TX_SEEN
     const events = this.runtime.handleIncoming(payload);
     this.processEvents(events);
   }
@@ -128,6 +122,9 @@ export class Session {
         case 'FUNDING_STARTED':
           this.callbacks.onFundingStarted(event.sid, event.mpcAliceAddr, event.mpcBobAddr, event.vA, event.vB);
           break;
+        case 'FUNDING_TX_SEEN':
+          this.callbacks.onFundingTx(event.payload.which, event.payload.txHash, event.payload);
+          break;
         case 'FUNDED':
           this.callbacks.onFunded(event.sid, event.transcriptHash);
           break;
@@ -147,31 +144,15 @@ export class Session {
     return this.runtime.getTranscriptHash();
   }
 
-  emitFundingTx(txHash: string) {
-      // Create a dummy payload to match the interface, even though runtime might fill details
-      // Actually runtime expects full payload? No, let's check runtime signature.
-      // Runtime.emitFundingTx takes (txHash: string).
-      // Wait, let's check sessionRuntime.ts signature for `emitFundingTx`.
-      // It takes (payload: FundingTxPayload). 
-      // So we need to construct it here or change runtime.
-      // Ideally runtime should construct it? No, runtime is pure.
-      // Client knows details.
-      
-      // Let's look at `sessionRuntime.ts` again via view_file if unsure, but I recall implementing it to take payload.
-      // Wait, `sessionRuntime.ts` changes were not explicitly shown in recent steps for that method.
-      // Let's assume for now it takes payload.
-      
+  emitFundingTx(tx: { txHash: string; fromAddress: string; toAddress: string; valueWei: string }) {
       const payload = {
-          which: this.role === 'alice' ? 'mpc_Alice' : 'mpc_Bob',
-          txHash,
-          fromAddress: '0x0000000000000000000000000000000000000000', // TODO: Pass real from
-          toAddress: '0x0000000000000000000000000000000000000000', // TODO: Pass real to
-          valueWei: '0' // TODO: Pass real value
+          which: this.role === 'alice' ? 'mpc_Alice' : 'mpc_Bob' as const,
+          txHash: tx.txHash,
+          fromAddress: tx.fromAddress,
+          toAddress: tx.toAddress,
+          valueWei: tx.valueWei
       };
-      // The linter said "Argument of type 'string' is not assignable to parameter of type '{ ... }'".
-      // So runtime indeed expects the object.
-      
-      const events = this.runtime.emitFundingTx(payload as any);
+      const events = this.runtime.emitFundingTx(payload);
       this.processEvents(events);
   }
 

@@ -78,3 +78,47 @@ export async function waitConfirmations(
     });
     return receipt;
 }
+
+/**
+ * Validate an on-chain funding transaction before confirming.
+ * Checks: to address, minimum value, no calldata, successful status.
+ */
+export async function validateFundingTx(
+    publicClient: PublicClient,
+    txHash: Hex,
+    expectedTo: string,
+    minValueWei: bigint,
+    confirmations: number = 1
+): Promise<void> {
+    // Get transaction details
+    const tx = await publicClient.getTransaction({ hash: txHash });
+    if (!tx) {
+        throw new Error(`Transaction ${txHash} not found on-chain`);
+    }
+    
+    // Validate recipient
+    if (tx.to?.toLowerCase() !== expectedTo.toLowerCase()) {
+        throw new Error(`TX 'to' mismatch: expected ${expectedTo}, got ${tx.to}`);
+    }
+    
+    // Validate value
+    if (tx.value < minValueWei) {
+        throw new Error(`TX value too low: expected >= ${minValueWei}, got ${tx.value}`);
+    }
+    
+    // Validate no calldata (simple ETH transfer)
+    if (tx.input !== '0x') {
+        throw new Error(`TX has calldata (${tx.input}), expected simple ETH transfer`);
+    }
+    
+    // Wait for confirmations and check status
+    const receipt = await publicClient.waitForTransactionReceipt({ 
+        hash: txHash, 
+        confirmations 
+    });
+    
+    if (receipt.status !== 'success') {
+        throw new Error(`TX failed: status=${receipt.status}`);
+    }
+}
+

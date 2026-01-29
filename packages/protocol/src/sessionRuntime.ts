@@ -3,7 +3,7 @@ import {
     type Message,
     parseMessage,
     type HandshakeParams,
-    type Role, // Assuming this is exported or I need to define local type if not?
+    type Role,
     type CapsuleAckMessage,
     type FundingTxMessage,
     type FundingTxPayload,
@@ -11,6 +11,7 @@ import {
 } from './messages.js';
 import { createHandshakeRuntime, type RuntimeEvent } from './handshakeRuntime.js';
 import { canonicalStringify } from './canonical.js';
+import { transcriptHash as computeTranscriptHash, type TranscriptRecord } from './transcript.js';
 
 export type SessionEvent = 
   | { kind: 'NET_OUT'; msg: Message }
@@ -18,6 +19,7 @@ export type SessionEvent =
   | { kind: 'KEYGEN_COMPLETE'; sid: string; transcriptHash: string; mpcAlice: MpcResult; mpcBob: MpcResult }
   | { kind: 'CAPSULES_VERIFIED'; sid: string; transcriptHash: string }
   | { kind: 'FUNDING_STARTED'; sid: string; mpcAliceAddr: string; mpcBobAddr: string; vA: string; vB: string }
+  | { kind: 'FUNDING_TX_SEEN'; sid: string; payload: FundingTxPayload }
   | { kind: 'FUNDED'; sid: string; transcriptHash: string }
   | { kind: 'ABORTED'; code: string; message: string };
 
@@ -93,13 +95,43 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
     ];
   }
 
+  // Post-handshake transcript as TranscriptRecords (for proper hashing)
+  const postHandshakeRecords: TranscriptRecord[] = [];
+
+  // Helper to strip undefined values from objects (canonicalize doesn't allow undefined)
+  function stripUndefined(obj: unknown): unknown {
+    if (obj === null || obj === undefined) return null;
+    if (typeof obj !== 'object') return obj;
+    if (Array.isArray(obj)) return obj.map(stripUndefined);
+    
+    const result: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      if (v !== undefined) {
+        result[k] = stripUndefined(v);
+      }
+    }
+    return result;
+  }
+
   function recordPost(msg: Message) {
     postHandshakeTranscript.push(msg);
+    // Also record as TranscriptRecord for hashing (strip undefined values)
+    postHandshakeRecords.push({
+      from: msg.from,
+      seq: msg.seq,
+      type: msg.type,
+      payload: stripUndefined(msg.payload)
+    });
   }
 
   function getFullTranscriptHash(): string {
-    // In real impl, hash everything including handshake transcript via handshake.getTranscriptHash()
-    return handshake.getTranscriptHash(); 
+    // Combine handshake transcript hash with post-handshake transcript hash
+    const hHandshake = handshake.getTranscriptHash();
+    const hPost = computeTranscriptHash(postHandshakeRecords);
+    
+    // Compute combined hash
+    const combined = canonicalStringify({ hHandshake, hPost });
+    return createHash('sha256').update(combined, 'utf8').digest('hex');
   }
 
   function handleLock(sidValue: string): SessionEvent[] {
@@ -350,7 +382,10 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
             }
             
             fundingTxByWhich[which] = msg.payload;
-            return checkFundingComplete();
+            // Emit FUNDING_TX_SEEN event before checking completion
+            const events: SessionEvent[] = [{ kind: 'FUNDING_TX_SEEN', sid: sid!, payload: msg.payload }];
+            events.push(...checkFundingComplete());
+            return events;
         }
     }
 
