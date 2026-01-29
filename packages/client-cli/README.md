@@ -22,10 +22,13 @@ pnpm -C packages/client-cli dev -- --role alice --room test123
 pnpm -C packages/client-cli dev -- --role bob --room test123
 ```
 
+> **Note**: Both clients will display "Waiting for peer..." until the second client joins the room. The handshake starts automatically once two peers are present.
+
 Both clients should print:
 ```
 STATE: SESSION_LOCKED
 sid=<same-64-char-hex>
+transcriptHash=<same-64-char-hex>
 ```
 
 ## Tamper Test (Mismatch Detection)

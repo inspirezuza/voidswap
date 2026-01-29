@@ -47,16 +47,31 @@ pnpm -C packages/client-cli dev -- --role alice --room test
 pnpm -C packages/client-cli dev -- --role bob --room test
 ```
 
-Both clients should print `SESSION_LOCKED` with identical SID.
+Both clients should print `SESSION_LOCKED` with identical SID and `transcriptHash`.
+
+## Security Features
+
+This protocol implementation includes:
+- **Strict Nonce Validation**: 32-byte 0x-prefixed lowercase hex enforcement.
+- **Anti-Replay Protection**: Strict sequence number tracking per sender.
+- **Deterministic Transcript**: Canonical sorting of message history ensures consistent `transcriptHash`.
+- **Peer Readiness**: Clients wait for peers to be present before starting handshake to prevent lost messages.
 
 ## Protocol Overview
 
 ### Handshake Flow
 ```
 Alice                         Relay                           Bob
+  |                            |                               |
+  |--- (Waiting for peer) ---->|                               |
+  |                            |<--- (Waiting for peer) -------|
+  |                            |                               |
+  |<--- (Peer Joined) ---------+--------- (Peer Joined) ------>|
+  |                            |                               |
   |-------- hello ------------>|                               |
   |                            |                               |
   |                            |<--------- hello --------------|
+  |                            |                               |
   |<------- hello (relay) -----|                               |
   |                            |-------- hello (relay) ------->|
   |                            |                               |
@@ -66,7 +81,7 @@ Alice                         Relay                           Bob
   |                            |<------- hello_ack ------------|
   |<----- hello_ack (relay) ---|                               |
   |                            |                               |
-  [SESSION_LOCKED sid=xxx]                        [SESSION_LOCKED sid=xxx]
+  [LOCKED sid=x transcript=y]     [LOCKED sid=x transcript=y]
 ```
 
 ### Nonce Format
