@@ -1,24 +1,26 @@
 /**
- * Handshake Adapter for Client CLI
+ * Session Adapter for Client CLI
  * 
- * Wraps the protocol's HandshakeRuntime for use with the transport layer.
+ * Wraps the protocol's SessionRuntime for use with the transport layer.
  * Handles event dispatch and provides a callback-based interface.
  */
 
 import { randomBytes } from 'crypto';
 import {
-  createHandshakeRuntime,
-  type HandshakeRuntime,
-  type RuntimeEvent,
+  createSessionRuntime,
+  type SessionRuntime,
+  type SessionEvent,
   type HandshakeParams,
   type Message,
   type Role,
-  type HandshakeState,
+  type SessionState,
+  type MpcResult,
 } from '@voidswap/protocol';
 
-export interface HandshakeCallbacks {
+export interface SessionCallbacks {
   onSendMessage: (msg: Message) => void;
   onLocked: (sid: string, transcriptHash: string) => void;
+  onKeygenComplete: (sid: string, transcriptHash: string, mpcAlice: MpcResult, mpcBob: MpcResult) => void;
   onAbort: (code: string, message: string) => void;
   onLog: (message: string) => void;
 }
@@ -39,24 +41,24 @@ export function makeNonce32(): string {
 }
 
 /**
- * Handshake adapter that wraps the protocol's HandshakeRuntime
+ * Session adapter that wraps the protocol's SessionRuntime
  */
-export class Handshake {
-  private runtime: HandshakeRuntime;
-  private callbacks: HandshakeCallbacks;
+export class Session {
+  private runtime: SessionRuntime;
+  private callbacks: SessionCallbacks;
   private role: Role;
 
   constructor(
     role: Role,
     params: HandshakeParams,
-    callbacks: HandshakeCallbacks
+    callbacks: SessionCallbacks
   ) {
     this.role = role;
     this.callbacks = callbacks;
     
     const localNonce = makeNonce32();
     
-    this.runtime = createHandshakeRuntime({
+    this.runtime = createSessionRuntime({
       role,
       params,
       localNonce,
@@ -64,11 +66,11 @@ export class Handshake {
   }
 
   /**
-   * Start the handshake by sending hello
+   * Start the handshake
    */
   start() {
-    this.callbacks.onLog(`Handshake starting as ${this.role}`);
-    const events = this.runtime.start();
+    this.callbacks.onLog(`Session starting as ${this.role}`);
+    const events = this.runtime.startHandshake();
     this.processEvents(events);
   }
 
@@ -83,16 +85,19 @@ export class Handshake {
   /**
    * Process runtime events and dispatch to callbacks
    */
-  private processEvents(events: RuntimeEvent[]) {
+  private processEvents(events: SessionEvent[]) {
     for (const event of events) {
       switch (event.kind) {
         case 'NET_OUT':
           this.callbacks.onLog(`Sent ${event.msg.type}`);
           this.callbacks.onSendMessage(event.msg);
           break;
-        case 'LOCKED':
+        case 'SESSION_LOCKED':
           this.callbacks.onLog(`Computed sid=${event.sid}`);
           this.callbacks.onLocked(event.sid, event.transcriptHash);
+          break;
+        case 'KEYGEN_COMPLETE':
+          this.callbacks.onKeygenComplete(event.sid, event.transcriptHash, event.mpcAlice, event.mpcBob);
           break;
         case 'ABORTED':
           this.callbacks.onAbort(event.code, event.message);
@@ -101,7 +106,7 @@ export class Handshake {
     }
   }
 
-  getState(): HandshakeState {
+  getState(): SessionState {
     return this.runtime.getState();
   }
 
@@ -115,4 +120,4 @@ export class Handshake {
 }
 
 // Re-export types for convenience
-export type { HandshakeState };
+export type { SessionState };

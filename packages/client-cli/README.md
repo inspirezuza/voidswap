@@ -29,6 +29,14 @@ Both clients should print:
 STATE: SESSION_LOCKED
 sid=<same-64-char-hex>
 transcriptHash=<same-64-char-hex>
+
+STATE: KEYGEN_COMPLETE
+sid=<same-64-char-hex>
+transcriptHash=<same-64-char-hex>
+------------------------------------------------------------
+Alice Address: 0x...
+Bob Address:   0x...
+============================================================
 ```
 
 ## Tamper Test (Mismatch Detection)

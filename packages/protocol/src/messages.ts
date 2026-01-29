@@ -154,12 +154,46 @@ export const ErrorMessageSchema = BaseMessageSchema.extend({
 export type ErrorMessage = z.infer<typeof ErrorMessageSchema>;
 
 // ============================================
+// Keygen Announce Message
+// ============================================
+
+export const KeygenAddressSchema = EthAddressSchema;
+// Mock commitment: 33 bytes (compressed pubkey) in hex
+export const KeygenCommitmentSchema = z.string().regex(/^0x[0-9a-fA-F]{66}$/, 'Must be a valid 33-byte hex commitment');
+
+export const MpcResultSchema = z.object({
+  address: KeygenAddressSchema,
+  commitments: z.object({
+    local: KeygenCommitmentSchema,
+    peer: KeygenCommitmentSchema,
+  }),
+});
+
+export type MpcResult = z.infer<typeof MpcResultSchema>;
+
+export const KeygenAnnouncePayloadSchema = z.object({
+  mpcAlice: MpcResultSchema,
+  mpcBob: MpcResultSchema,
+  note: z.string().optional(),
+});
+
+export const KeygenAnnounceMessageSchema = BaseMessageSchema.extend({
+  type: z.literal('keygen_announce'),
+  // SID is strictly required for this message type
+  sid: z.string(),
+  payload: KeygenAnnouncePayloadSchema,
+});
+
+export type KeygenAnnounceMessage = z.infer<typeof KeygenAnnounceMessageSchema>;
+
+// ============================================
 // Union Message Type
 // ============================================
 
 export const MessageSchema = z.discriminatedUnion('type', [
   HelloMessageSchema,
   HelloAckMessageSchema,
+  KeygenAnnounceMessageSchema,
   AbortMessageSchema,
   ErrorMessageSchema,
 ]);

@@ -6,8 +6,8 @@
 
 import { parseArgs, applyTamper } from './cli.js';
 import { Transport } from './transport.js';
-import { Handshake } from './handshake.js';
-import type { Message } from '@voidswap/protocol';
+import { Session } from './handshake.js';
+import type { Message, MpcResult } from '@voidswap/protocol';
 
 function log(message: string) {
   const time = new Date().toISOString();
@@ -36,7 +36,7 @@ async function main() {
     // Create handshake handler
     let transport: Transport;
     
-    const handshake = new Handshake(args.role, params, {
+    const session = new Session(args.role, params, {
       onSendMessage: (msg: Message) => {
         transport.sendPayload(msg);
       },
@@ -48,8 +48,21 @@ async function main() {
         log(`transcriptHash=${transcriptHash}`);
         log('='.repeat(60));
         log('');
+        // Handshake locked, proceed to Keygen automatically (handled by SessionRuntime)
+      },
+      onKeygenComplete: (sid: string, transcriptHash: string, mpcAlice: MpcResult, mpcBob: MpcResult) => {
+        log('');
+        log('='.repeat(60));
+        log(`STATE: KEYGEN_COMPLETE`);
+        log(`sid=${sid}`);
+        log(`transcriptHash=${transcriptHash}`);
+        log('-'.repeat(60));
+        log(`Alice Address: ${mpcAlice.address}`);
+        log(`Bob Address:   ${mpcBob.address}`);
+        log('='.repeat(60));
+        log('');
         
-        // Exit after a short delay to allow any final messages
+        // Exit after a short delay
         setTimeout(() => {
           transport.close();
           process.exit(0);
@@ -80,7 +93,7 @@ async function main() {
 
       if (memberCount >= 2) {
         handshakeStarted = true;
-        handshake.start();
+        session.start();
       } else {
         log(`Waiting for peer... (memberCount=${memberCount})`);
       }
@@ -102,7 +115,7 @@ async function main() {
         tryStartHandshake(memberCount);
       },
       onPeerPayload: (payload: unknown) => {
-        handshake.handleIncoming(payload);
+        session.handleIncoming(payload);
       },
       onError: (error: Error) => {
         log(`Error: ${error.message}`);

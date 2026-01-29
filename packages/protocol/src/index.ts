@@ -60,3 +60,20 @@ export {
   type HandshakeState,
   type RuntimeEvent,
 } from './handshakeRuntime.js';
+
+// Keygen helpers
+export { mockKeygen } from './mockKeygen.js';
+
+// Session runtime (Handshake + Keygen)
+export {
+  createSessionRuntime,
+  type SessionRuntime,
+  type SessionRuntimeOptions,
+  type SessionState,
+  type SessionEvent,
+} from './sessionRuntime.js';
+
+export {
+  type MpcResult,
+  type KeygenAnnounceMessage,
+} from './messages.js';

@@ -260,6 +260,9 @@ export function createHandshakeRuntime(opts: HandshakeRuntimeOptions): Handshake
       case 'error':
         // Just log, don't abort
         return [];
+      default:
+        // Ignore other message types (e.g. keygen_announce)
+        return [];
     }
   }
 

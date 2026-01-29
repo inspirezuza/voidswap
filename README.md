@@ -82,6 +82,14 @@ Alice                         Relay                           Bob
   |<----- hello_ack (relay) ---|                               |
   |                            |                               |
   [LOCKED sid=x transcript=y]     [LOCKED sid=x transcript=y]
+  |                            |                               |
+  |--- keygen_announce ------->|                               |
+  |                            |--- keygen_announce ---------->|
+  |                            |                               |
+  |                            |<------- keygen_announce ------|
+  |<--- keygen_announce -------|                               |
+  |                            |                               |
+  [KEYGEN_COMPLETE mpc=OK]          [KEYGEN_COMPLETE mpc=OK]
 ```
 
 ### Nonce Format
