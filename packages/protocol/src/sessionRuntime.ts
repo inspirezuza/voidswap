@@ -15,6 +15,8 @@ import { createHandshakeRuntime, type RuntimeEvent } from './handshakeRuntime.js
 import { canonicalStringify } from './canonical.js';
 import { transcriptHash as computeTranscriptHash, type TranscriptRecord } from './transcript.js';
 import { buildExecutionTemplates, type TxTemplateResult } from './executionTemplates.js';
+import { mockKeygen, mockYShare } from './mockKeygen.js';
+import { mockTlockEncrypt, mockVerifyCapsule } from './mockTlock.js';
 
 export type SessionEvent = 
   | { kind: 'NET_OUT'; msg: Message }
@@ -502,10 +504,12 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
         // We should ensure seq >= 100.
         if (msg.seq < 100) return emitAbort('BAD_MESSAGE', 'Post-handshake seq must be >= 100');
         
-        if (lastSeq !== null && msg.seq <= lastSeq) {
-             return emitAbort('BAD_MESSAGE', `Replay/out-of-order: seq ${msg.seq} <= last ${lastSeq}`);
+        if (lastSeq !== null && msg.seq < lastSeq) {
+             return emitAbort('BAD_MESSAGE', `Replay/out-of-order: seq ${msg.seq} < last ${lastSeq}`);
         }
-        lastPostSeqBySender[msg.from] = msg.seq;
+        if (lastSeq === null || msg.seq > lastSeq) {
+            lastPostSeqBySender[msg.from] = msg.seq;
+        }
         
         // NOTE: recordPost is called in state-specific handlers AFTER validation
         // to ensure transcript only contains accepted messages
@@ -767,10 +771,12 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
         // Enforce Seq
         const lastSeq = lastPostSeqBySender[msg.from];
         if (msg.seq < 100) return emitAbort('BAD_MESSAGE', 'Post-handshake seq must be >= 100');
-        if (lastSeq !== null && msg.seq <= lastSeq) {
-            return emitAbort('BAD_MESSAGE', `Replay/out-of-order: seq ${msg.seq} <= last ${lastSeq}`);
+        if (lastSeq !== null && msg.seq < lastSeq) {
+            return emitAbort('BAD_MESSAGE', `Replay/out-of-order: seq ${msg.seq} < last ${lastSeq}`);
         }
-        lastPostSeqBySender[msg.from] = msg.seq;
+        if (lastSeq === null || msg.seq > lastSeq) {
+            lastPostSeqBySender[msg.from] = msg.seq;
+        }
         
         if (msg.type === 'tx_template_commit') {
             const payload = msg.payload;
@@ -983,59 +989,4 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
   };
 }
 
-// ==========================================
-// Mock Crypto Helpers
-// ==========================================
-
-function mockKeygen(sid: string, role: string) {
-    const seed = sid + role;
-    return {
-        address: '0x' + createHash('sha1').update(seed).digest('hex'),
-        commitments: { 
-            local: '0x02' + createHash('sha256').update(seed + 'local').digest('hex'),
-            peer: '0x02' + createHash('sha256').update(seed + 'peer').digest('hex')
-        }
-    };
-}
-
-function mockYShare(sid: string, role: string) {
-    return '0x02' + createHash('sha256').update(sid + role + 'yshare').digest('hex');
-}
-
-function mockTlockEncrypt(input: any) {
-    // Deterministic mock encryption
-    const json = JSON.stringify(input); // canonical enough for mock
-    return {
-        ct: '0x' + createHash('sha256').update(json + 'ct').digest('hex'),
-        proof: '0x' + createHash('sha256').update(json + 'proof').digest('hex')
-    };
-}
-
-function mockVerifyCapsule(ctx: any, proof: string) {
-    // Recompute expected proof for this context
-    const json = JSON.stringify(ctx); 
-    // Note: ctx contains ct, but mockTlockEncrypt computed ct and proof from input.
-    // Here we are verifying the proof matches the CT/Context?
-    // In real SP4, proof proves decryption of CT yields correct result or similar.
-    // For mock, let's just assert the proof matches the mockTlockEncrypt output for the SAME input?
-    // But we don't have the original input (yShare) here easily? 
-    // Actually we passed yShare in tlockInput in sessionRuntime.ts before calling this.
-    
-    // sessionRuntime.ts calls: 
-    // const tlockInput = { sid, role, refundRound, yShare };
-    // mockVerifyCapsule({ ...tlockInput, ct }, proof);
-    
-    // So 'ctx' has yShare.
-    // So we can re-run mockTlockEncrypt(ctx) (stripping ct?) and check if proof matches.
-    const { proof: expectedProof } = mockTlockEncrypt({
-        sid: ctx.sid,
-        role: ctx.role,
-        refundRound: ctx.refundRound,
-        yShare: ctx.yShare
-    });
-    
-    if (proof !== expectedProof) {
-        return false;
-    }
-    return true;
-}
+// Local mock helpers removed in favor of imported versions
