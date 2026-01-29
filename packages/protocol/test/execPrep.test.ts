@@ -161,12 +161,12 @@ describe('EXEC_PREP Phase', () => {
             }
         }
 
-        // Both should be EXEC_READY
-        expect(alice.getState()).toBe('EXEC_READY');
-        expect(bob.getState()).toBe('EXEC_READY');
+        // Both should be EXEC_TEMPLATES_SYNC (now auto-transitions after EXEC_TEMPLATES_BUILT)
+        expect(alice.getState()).toBe('EXEC_TEMPLATES_SYNC');
+        expect(bob.getState()).toBe('EXEC_TEMPLATES_SYNC');
 
-        // Verify transcript hashes match
-        expect(alice.getTranscriptHash()).toBe(bob.getTranscriptHash());
+        // Note: Transcript hashes will diverge here because each has their own commit recorded.
+        // Hash matching will occur after exchanging commits in EXEC_TEMPLATES_SYNC (tested in templateSync.test.ts)
     });
 
     it('should abort on nonce mismatch', () => {

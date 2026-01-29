@@ -317,6 +317,50 @@ export const FeeParamsAckMessageSchema = BaseMessageSchema.extend({
 export type FeeParamsAckMessage = z.infer<typeof FeeParamsAckMessageSchema>;
 
 // ============================================
+// Tx Template Commit Message (EXEC_TEMPLATES_SYNC)
+// ============================================
+
+const DigestHex64Schema = z.string().regex(/^0x[0-9a-fA-F]{64}$/, 'Must be a 32-byte hex digest');
+const CommitHashSchema = z.string().regex(/^[0-9a-f]{64}$/, 'Must be a 64-char lowercase hex hash');
+
+export const TxTemplateCommitPayloadSchema = z.object({
+  digestA: DigestHex64Schema,
+  digestB: DigestHex64Schema,
+  commitHash: CommitHashSchema,
+  note: z.string().optional(),
+});
+
+export type TxTemplateCommitPayload = z.infer<typeof TxTemplateCommitPayloadSchema>;
+
+export const TxTemplateCommitMessageSchema = BaseMessageSchema.extend({
+  type: z.literal('tx_template_commit'),
+  sid: z.string(), // Required
+  payload: TxTemplateCommitPayloadSchema,
+});
+
+export type TxTemplateCommitMessage = z.infer<typeof TxTemplateCommitMessageSchema>;
+
+// ============================================
+// Tx Template Ack Message (EXEC_TEMPLATES_SYNC)
+// ============================================
+
+export const TxTemplateAckPayloadSchema = z.object({
+  ok: z.boolean(),
+  reason: z.string().optional(),
+  commitHash: CommitHashSchema, // Must match peer's commit hash
+});
+
+export type TxTemplateAckPayload = z.infer<typeof TxTemplateAckPayloadSchema>;
+
+export const TxTemplateAckMessageSchema = BaseMessageSchema.extend({
+  type: z.literal('tx_template_ack'),
+  sid: z.string(), // Required
+  payload: TxTemplateAckPayloadSchema,
+});
+
+export type TxTemplateAckMessage = z.infer<typeof TxTemplateAckMessageSchema>;
+
+// ============================================
 // Union Message Type
 // ============================================
 
@@ -330,6 +374,8 @@ export const MessageSchema = z.discriminatedUnion('type', [
   NonceReportMessageSchema,
   FeeParamsMessageSchema,
   FeeParamsAckMessageSchema,
+  TxTemplateCommitMessageSchema,
+  TxTemplateAckMessageSchema,
   AbortMessageSchema,
   ErrorMessageSchema,
 ]);

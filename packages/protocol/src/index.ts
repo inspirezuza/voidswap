@@ -91,3 +91,13 @@ export {
 // Mock Crypto (for testing or advanced usage)
 export { mockTlockEncrypt } from './mockTlock.js';
 export { mockProveCapsule, mockVerifyCapsule } from './mockZkCapsule.js';
+
+// Execution Templates
+export {
+  buildExecutionTemplates,
+  type FeeParams,
+  type Nonces,
+  type TxTemplateResult,
+  type ExecutionTemplateInput,
+  type UnsignedEip1559Tx,
+} from './executionTemplates.js';

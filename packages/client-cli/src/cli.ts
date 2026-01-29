@@ -16,6 +16,7 @@ export interface CliArgs {
   params: HandshakeParams;
   tamper: TamperField;
   tamperCapsule: boolean;
+  tamperTemplateCommit: boolean;
   verbose: boolean;
   rpcUrl: string;
   autoFund: boolean;
@@ -43,6 +44,7 @@ export function parseArgs(argv: string[]): CliArgs {
   let rARefund = 2000;
   let tamper: TamperField = 'none';
   let tamperCapsule = false; // Default: false
+  let tamperTemplateCommit = false; // Default: false
   let verbose = false; // Default: false
   
   // Chain defaults
@@ -114,6 +116,9 @@ export function parseArgs(argv: string[]): CliArgs {
       case '--tamperCapsule':
         tamperCapsule = true;
         break;
+      case '--tamperTemplateCommit':
+        tamperTemplateCommit = true;
+        break;
       case '--verbose':
         verbose = true;
         break;
@@ -163,6 +168,7 @@ export function parseArgs(argv: string[]): CliArgs {
     params,
     tamper,
     tamperCapsule,
+    tamperTemplateCommit,
     verbose,
     rpcUrl,
     autoFund,

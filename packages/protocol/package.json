@@ -11,6 +11,7 @@
     "example:sid": "tsx examples/computeSid.ts"
   },
   "dependencies": {
+    "@voidswap/tx-template": "workspace:*",
     "zod": "^3.24.0"
   },
   "devDependencies": {

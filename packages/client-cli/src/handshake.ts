@@ -31,6 +31,8 @@ export interface SessionCallbacks {
   onFunded: (sid: string, transcriptHash: string) => void;
   onExecPrepStarted: (sid: string, mpcAlice: string, mpcBob: string) => void;
   onExecReady: (sid: string, transcriptHash: string, nonces: { mpcAliceNonce: string; mpcBobNonce: string }, fee: FeeParamsPayload) => void;
+  onExecTemplatesBuilt: (sid: string, transcriptHash: string, digestA: string, digestB: string) => void;
+  onExecTemplatesReady: (sid: string, transcriptHash: string, digestA: string, digestB: string) => void;
   onLog: (message: string) => void;
 }
 
@@ -61,18 +63,43 @@ export class Session {
     role: Role,
     params: HandshakeParams,
     callbacks: SessionCallbacks,
-    tamperCapsule = false // Optional flag
+    tamperCapsule = false, // Optional flag
+    tamperTemplateCommit = false // Optional flag
   ) {
     this.role = role;
     this.callbacks = callbacks;
     
     const localNonce = makeNonce32();
+
+    // Mutator for tamperTemplateCommit (Bob only)
+    let outboundMutator: ((msg: Message) => Message) | undefined;
+    if (role === 'bob' && tamperTemplateCommit) {
+        outboundMutator = (msg: Message) => {
+            if (msg.type === 'tx_template_commit') {
+                 // Mutate digestB (Bob's digest) to cause mismatch
+                 // Original: e.g. "0xabc..." -> Mutated: "0x1bc..."
+                 // We specifically change the first nibble after '0x'
+                 const original = msg.payload.digestB;
+                 const flipped = original[2] === '0' ? '1' : '0'; 
+                 const mutated = '0x' + flipped + original.slice(3);
+                 return {
+                     ...msg,
+                     payload: {
+                         ...msg.payload,
+                         digestB: mutated
+                     }
+                 };
+            }
+            return msg;
+        };
+    }
     
     this.runtime = createSessionRuntime({
       role,
       params,
       localNonce,
       tamperCapsule,
+      outboundMutator,
     });
   }
 
@@ -137,6 +164,12 @@ export class Session {
           break;
         case 'EXEC_READY':
           this.callbacks.onExecReady(event.sid, event.transcriptHash, event.nonces, event.fee);
+          break;
+        case 'EXEC_TEMPLATES_BUILT':
+          this.callbacks.onExecTemplatesBuilt(event.sid, event.transcriptHash, event.digestA, event.digestB);
+          break;
+        case 'EXEC_TEMPLATES_READY':
+          this.callbacks.onExecTemplatesReady(event.sid, event.transcriptHash, event.digestA, event.digestB);
           break;
       } // switch
     } // for

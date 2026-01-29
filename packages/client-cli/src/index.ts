@@ -229,7 +229,33 @@ async function main() {
              log(`All parties agreed.`);
              log(`Nonces: mpc_Alice=${nonces.mpcAliceNonce}, mpc_Bob=${nonces.mpcBobNonce}`);
              log(`Fee: maxFee=${fee.maxFeePerGasWei}, priorityFee=${fee.maxPriorityFeePerGasWei}, gasLimit=${fee.gasLimit}`);
-             log(`Transcript Hash: ${transcriptHash}`);
+             if (args.verbose) {
+                 log(`Transcript Hash: ${transcriptHash}`);
+             }
+             log('='.repeat(60));
+        },
+        onExecTemplatesBuilt: (sid: string, transcriptHash: string, digestA: string, digestB: string) => {
+             log('');
+             log('='.repeat(60));
+             log(`STATE: EXEC_TEMPLATES_BUILT`);
+             log(`Execution transaction templates built.`);
+             log(`digest_A (mpc_Alice -> target_Bob): ${args.verbose ? digestA : digestA.slice(0, 18) + '...'}`);
+             log(`digest_B (mpc_Bob -> target_Alice): ${args.verbose ? digestB : digestB.slice(0, 18) + '...'}`);
+             if (args.verbose) {
+                 log(`Transcript Hash: ${transcriptHash}`);
+             }
+             log('='.repeat(60));
+        },
+        onExecTemplatesReady: (sid: string, transcriptHash: string, digestA: string, digestB: string) => {
+             log('');
+             log('='.repeat(60));
+             log(`STATE: EXEC_TEMPLATES_READY`);
+             log(`Templates synchronized and committed.`);
+             log(`digest_A: ${args.verbose ? digestA : digestA.slice(0, 18) + '...'}`);
+             log(`digest_B: ${args.verbose ? digestB : digestB.slice(0, 18) + '...'}`);
+             if (args.verbose) {
+                 log(`Transcript Hash: ${transcriptHash}`);
+             }
              log('='.repeat(60));
              
              // Exit after success
@@ -267,7 +293,7 @@ async function main() {
       onLog: (message: string) => {
         log(message);
       },
-    }, args.tamperCapsule);
+    }, args.tamperCapsule, args.tamperTemplateCommit);
 
     // Helper: start handshake if not already started
     function tryStartHandshake(memberCount: number) {

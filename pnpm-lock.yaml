@@ -45,6 +45,9 @@ importers:
 
   packages/protocol:
     dependencies:
+      '@voidswap/tx-template':
+        specifier: workspace:*
+        version: link:../tx-template
       zod:
         specifier: ^3.24.0
         version: 3.25.76

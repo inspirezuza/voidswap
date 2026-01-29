@@ -14,6 +14,7 @@ import {
 import { createHandshakeRuntime, type RuntimeEvent } from './handshakeRuntime.js';
 import { canonicalStringify } from './canonical.js';
 import { transcriptHash as computeTranscriptHash, type TranscriptRecord } from './transcript.js';
+import { buildExecutionTemplates, type TxTemplateResult } from './executionTemplates.js';
 
 export type SessionEvent = 
   | { kind: 'NET_OUT'; msg: Message }
@@ -25,6 +26,8 @@ export type SessionEvent =
   | { kind: 'FUNDED'; sid: string; transcriptHash: string }
   | { kind: 'EXEC_PREP_STARTED'; sid: string; mpcAlice: string; mpcBob: string }
   | { kind: 'EXEC_READY'; sid: string; transcriptHash: string; nonces: { mpcAliceNonce: string; mpcBobNonce: string }; fee: FeeParamsPayload }
+  | { kind: 'EXEC_TEMPLATES_BUILT'; sid: string; transcriptHash: string; digestA: string; digestB: string }
+  | { kind: 'EXEC_TEMPLATES_READY'; sid: string; transcriptHash: string; digestA: string; digestB: string }
   | { kind: 'ABORTED'; code: string; message: string };
 
 export type SessionState = 
@@ -39,6 +42,9 @@ export type SessionState =
   | 'FUNDED'
   | 'EXEC_PREP'
   | 'EXEC_READY'
+  | 'EXEC_TEMPLATES_BUILT'
+  | 'EXEC_TEMPLATES_SYNC'
+  | 'EXEC_TEMPLATES_READY'
   | 'ABORTED';
 
 export interface SessionRuntime {
@@ -59,6 +65,7 @@ export interface SessionRuntimeOptions {
   params: HandshakeParams;
   localNonce: string; // 32-byte hex
   tamperCapsule?: boolean;
+  outboundMutator?: (msg: Message) => Message;
 }
 
 export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntime {
@@ -93,6 +100,14 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
   let peerNonces: NonceReportPayload | null = null;
   let feeParams: FeeParamsPayload | null = null;
   let feeAcked = false;
+  
+  // Execution Templates (computed after EXEC_READY)
+  let execTemplates: TxTemplateResult | null = null;
+  
+  // Template Sync State (EXEC_TEMPLATES_SYNC)
+  let localCommitHash: string | null = null;
+  let peerCommitHash: string | null = null;
+  let localCommitAcked = false;
 
   function emitAbort(code: string, message: string): SessionEvent[] {
     const abortMsg: Message = {
@@ -331,7 +346,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
       
       // All conditions met -> EXEC_READY
       state = 'EXEC_READY';
-      return [{
+      const execReadyEvent: SessionEvent = {
           kind: 'EXEC_READY',
           sid: sid!,
           transcriptHash: getFullTranscriptHash(),
@@ -340,6 +355,92 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
               mpcBobNonce: localNonces.mpcBobNonce
           },
           fee: feeParams
+      };
+      
+      // Compute execution templates immediately
+      const mpcAliceAddr = role === 'alice' ? localMpc.address : peerMpc.address;
+      const mpcBobAddr = role === 'bob' ? localMpc.address : peerMpc.address;
+      
+      execTemplates = buildExecutionTemplates({
+          chainId: params.chainId,
+          targets: {
+              targetAlice: params.targetAlice,
+              targetBob: params.targetBob
+          },
+          mpcs: {
+              mpcAlice: mpcAliceAddr,
+              mpcBob: mpcBobAddr
+          },
+          values: {
+              vAWei: params.vA,
+              vBWei: params.vB
+          },
+          nonces: {
+              mpcAliceNonce: localNonces.mpcAliceNonce,
+              mpcBobNonce: localNonces.mpcBobNonce
+          },
+          fee: {
+              maxFeePerGasWei: feeParams.maxFeePerGasWei,
+              maxPriorityFeePerGasWei: feeParams.maxPriorityFeePerGasWei,
+              gasLimit: feeParams.gasLimit
+          }
+      });
+      
+      // Transition to EXEC_TEMPLATES_BUILT
+      state = 'EXEC_TEMPLATES_BUILT';
+      const templatesEvent: SessionEvent = {
+          kind: 'EXEC_TEMPLATES_BUILT',
+          sid: sid!,
+          transcriptHash: getFullTranscriptHash(),
+          digestA: execTemplates!.digestA,
+          digestB: execTemplates!.digestB
+      };
+      
+      // Compute commit hash and send tx_template_commit
+      const digestsObj = { digestA: execTemplates!.digestA, digestB: execTemplates!.digestB };
+      localCommitHash = createHash('sha256')
+          .update(canonicalStringify(digestsObj), 'utf8')
+          .digest('hex');
+      
+      let commitMsg: Message = {
+          type: 'tx_template_commit',
+          from: role,
+          seq: postSeq++,
+          sid: sid!,
+          payload: {
+              digestA: execTemplates!.digestA,
+              digestB: execTemplates!.digestB,
+              commitHash: localCommitHash
+          }
+      };
+      
+      // Apply mutator if present (for tampering tests)
+      if (opts.outboundMutator) {
+          commitMsg = opts.outboundMutator(commitMsg);
+      }
+      
+      recordPost(commitMsg);
+      
+      // Transition to EXEC_TEMPLATES_SYNC
+      state = 'EXEC_TEMPLATES_SYNC';
+      
+      return [execReadyEvent, templatesEvent, { kind: 'NET_OUT', msg: commitMsg }];
+  }
+
+  function checkTemplatesReady(): SessionEvent[] {
+      if (state !== 'EXEC_TEMPLATES_SYNC') return [];
+      
+      // Both conditions must be met
+      if (!peerCommitHash || !localCommitAcked) return [];
+      
+      // Transition to EXEC_TEMPLATES_READY
+      state = 'EXEC_TEMPLATES_READY';
+      return [{
+          kind: 'EXEC_TEMPLATES_READY',
+          sid: sid!,
+          transcriptHash: getFullTranscriptHash(),
+          digestA: execTemplates!.digestA,
+          digestB: execTemplates!.digestB
       }];
   }
 
@@ -649,6 +750,103 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
             recordPost(msg); // Record incoming fee_params_ack AFTER validation
             feeAcked = true;
             return checkExecReady();
+        }
+    }
+
+    // EXEC_TEMPLATES_SYNC Logic
+    if (state === 'EXEC_TEMPLATES_SYNC') {
+        // SID Check
+        if (msg.sid !== sid) {
+            if (msg.type === 'abort') return [{ kind: 'ABORTED', code: (msg.payload as any).code, message: (msg.payload as any).message }];
+            return emitAbort('SID_MISMATCH', `Expected ${sid}, got ${msg.sid}`);
+        }
+        
+        // Ignore self
+        if (msg.from === role) return [];
+        
+        // Enforce Seq
+        const lastSeq = lastPostSeqBySender[msg.from];
+        if (msg.seq < 100) return emitAbort('BAD_MESSAGE', 'Post-handshake seq must be >= 100');
+        if (lastSeq !== null && msg.seq <= lastSeq) {
+            return emitAbort('BAD_MESSAGE', `Replay/out-of-order: seq ${msg.seq} <= last ${lastSeq}`);
+        }
+        lastPostSeqBySender[msg.from] = msg.seq;
+        
+        if (msg.type === 'tx_template_commit') {
+            const payload = msg.payload;
+            
+            // Verify commit hash matches
+            const expectedHash = createHash('sha256')
+                .update(canonicalStringify({ digestA: payload.digestA, digestB: payload.digestB }), 'utf8')
+                .digest('hex');
+            
+            if (payload.commitHash !== expectedHash) {
+                return emitAbort('BAD_MESSAGE', `Invalid commit hash: expected ${expectedHash}, got ${payload.commitHash}`);
+            }
+            
+            // Verify digests match local templates
+            if (!execTemplates) {
+                return emitAbort('PROTOCOL_ERROR', 'No local templates computed');
+            }
+            
+            if (payload.digestA !== execTemplates.digestA || payload.digestB !== execTemplates.digestB) {
+                return emitAbort('PROTOCOL_ERROR', `Template digest mismatch: local A=${execTemplates.digestA.slice(0,18)}..., peer A=${payload.digestA.slice(0,18)}...`);
+            }
+            
+            // Idempotency check
+            if (peerCommitHash) {
+                if (peerCommitHash !== payload.commitHash) {
+                    return emitAbort('PROTOCOL_ERROR', 'Conflicting tx_template_commit');
+                }
+                return []; // Idempotent
+            }
+            
+            // Store peer commit
+            peerCommitHash = payload.commitHash;
+            recordPost(msg);
+            
+            // Send ack
+            const ackMsg: Message = {
+                type: 'tx_template_ack',
+                from: role,
+                seq: postSeq++,
+                sid: sid!,
+                payload: {
+                    ok: true,
+                    commitHash: payload.commitHash
+                }
+            };
+            recordPost(ackMsg);
+            
+            const events: SessionEvent[] = [{ kind: 'NET_OUT', msg: ackMsg }];
+            events.push(...checkTemplatesReady());
+            return events;
+        }
+        
+        if (msg.type === 'tx_template_ack') {
+            const payload = msg.payload;
+            
+            // Verify it's for our commit
+            if (!localCommitHash) {
+                return emitAbort('PROTOCOL_ERROR', 'Received tx_template_ack before sending commit');
+            }
+            
+            if (payload.commitHash !== localCommitHash) {
+                return emitAbort('PROTOCOL_ERROR', `Ack hash mismatch: expected ${localCommitHash}, got ${payload.commitHash}`);
+            }
+            
+            if (!payload.ok) {
+                return emitAbort('PROTOCOL_ERROR', `Template commit rejected: ${payload.reason}`);
+            }
+            
+            // Idempotency check
+            if (localCommitAcked) {
+                return []; // Already acked
+            }
+            
+            localCommitAcked = true;
+            recordPost(msg);
+            return checkTemplatesReady();
         }
     }
 
