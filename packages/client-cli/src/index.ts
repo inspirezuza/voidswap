@@ -8,6 +8,8 @@ import { parseArgs, applyTamper } from './cli.js';
 import { Transport } from './transport.js';
 import { Session } from './handshake.js';
 import type { Message, MpcResult } from '@voidswap/protocol';
+import { createClients, sendEthTransfer, waitConfirmations } from './chain.js';
+import { formatEther } from 'viem';
 
 function log(message: string) {
   const time = new Date().toISOString();
@@ -63,25 +65,112 @@ async function main() {
         log('='.repeat(60));
         log('');
       },
-      onCapsulesVerified: (sid: string, transcriptHash: string) => {
-        log('');
-        log('='.repeat(60));
-        log(`STATE: CAPSULES_VERIFIED`);
-        if (args.verbose) {
+          
+          // Replaced exit with funding logic (merged comment)
+        onFundingStarted: async (sid: string, mpcAlice: string, mpcBob: string, vA: string, vB: string) => {
+            log('');
+            log('='.repeat(60));
+            log(`STATE: FUNDING_STARTED`);
+            log(`Alice MPC: ${mpcAlice} (Needs ${formatEther(BigInt(vA))} ETH)`);
+            log(`Bob MPC:   ${mpcBob} (Needs ${formatEther(BigInt(vB))} ETH)`);
+            log('='.repeat(60));
+            
+            // Auto-fund logic
+            if (args.autoFund) {
+               try {
+                  const { publicClient, walletClient, funderAddress } = createClients(args.rpcUrl, args.fundingKey);
+                  
+                  if (!walletClient || !funderAddress) {
+                      throw new Error('AutoFund requires a valid funding key (passed via --fundingKey or ENV)');
+                  }
+                  
+                  log(`Auto-funding enabled. Using account ${funderAddress}`);
+                  
+                  let to: string;
+                  let value: bigint;
+                  
+                  if (args.role === 'alice') {
+                      to = mpcAlice;
+                      value = BigInt(vA); 
+                  } else {
+                      to = mpcBob;
+                      value = BigInt(vB);
+                  }
+                  
+                  // Small Gas Reserve? The prompt said "vA + gasReserveWei". For now using exact amount as per prompt constraint "vA (alice)" but simpler to add slight overhead if needed.
+                  // Prompt: "Funding amount sent = vA + gasReserveWei" (default 0).
+                  // We'll stick to exact for POC unless specified.
+                  
+                  log(`Sending ${formatEther(value)} ETH to ${to}...`);
+                  const hash = await sendEthTransfer(walletClient, to as `0x${string}`, value);
+                  log(`Funding Tx Sent: ${hash}`);
+                  
+                  // Notify Runtime
+                  session.emitFundingTx(hash);
+                  
+                  // Watch for own confirmation
+                  log(`Waiting for ${args.confirmations} confirmations...`);
+                  await waitConfirmations(publicClient, hash, args.confirmations);
+                  log(`My funding confirmed.`);
+                  
+                  // Notify runtime
+                  session.notifyFundingConfirmed(args.role === 'alice' ? 'mpc_Alice' : 'mpc_Bob');
+                  
+               } catch (err: any) {
+                   log(`Auto-fund failed: ${err.message}`);
+                   process.exit(1);
+               }
+            } else {
+                log('Auto-fund disabled. Please manually fund your MPC wallet.');
+                log(`Send ETH to the address above. Then restart (manual input support pending).`);
+                // For POC, we might hang here or exit.
+                // The prompt says: "If not autoFund: print instructions... We can skip manual completion for now".
+            }
+        },
+        onFundingTx: async (which: 'mpc_Alice' | 'mpc_Bob', txHash: string) => {
+             log(`Peer announced funding tx: ${txHash} for ${which}`);
+             
+             try {
+                 const { publicClient } = createClients(args.rpcUrl);
+                 log(`Watching peer tx ${txHash} for ${args.confirmations} confirmations...`);
+                 
+                 await waitConfirmations(publicClient, txHash as `0x${string}`, args.confirmations);
+                 log(`Peer funding confirmed.`);
+                 
+                 session.notifyFundingConfirmed(which);
+             } catch (err: any) {
+                 log(`Error watching peer funding: ${err.message}`);
+                 process.exit(1);
+             }
+        },
+        onFunded: (sid: string, transcriptHash: string) => {
+             log('');
+             log('='.repeat(60));
+             log(`STATE: FUNDED`);
+             log(`All funding confirmed. Ready for execution.`);
+             log(`Transcript Hash: ${transcriptHash}`);
+             log('='.repeat(60));
+             
+             // Exit after success
+             setTimeout(() => {
+                transport.close();
+                process.exit(0);
+             }, 1000);
+        },
+        onCapsulesVerified: (sid: string, transcriptHash: string) => {
+         log('');
+         log('='.repeat(60));
+         log(`STATE: CAPSULES_VERIFIED`);
+         if (args.verbose) {
            log(`sid=${sid}`);
            log(`transcriptHash=${transcriptHash}`);
            log('-'.repeat(60));
-        }
-        log('REFUND CAPSULES EXCHANGED AND VERIFIED. SECURE TO FUND.');
-        log('='.repeat(60));
-        log('');
-
-        // Exit after a short delay
-        setTimeout(() => {
-          transport.close();
-          process.exit(0);
-        }, 500);
-      },
+         }
+         log('REFUND CAPSULES EXCHANGED AND VERIFIED.');
+         log('='.repeat(60));
+         log('');
+         // No exit here, wait for Funding transition (automatic in runtime)
+       },
       onAbort: (code: string, message: string) => {
         log('');
         log('='.repeat(60));

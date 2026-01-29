@@ -22,9 +22,19 @@ pnpm-debug.log*
 # Environment
 .env
 .env.local
+.env.*.local
 
 # Testing
 coverage/
 
 # TypeScript
 *.tsbuildinfo
+
+# Foundry
+cache/
+out/
+broadcast/
+
+# Private keys (never commit!)
+*.key
+*.pem

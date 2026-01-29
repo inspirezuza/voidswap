@@ -78,6 +78,8 @@ export {
   type KeygenAnnounceMessage,
   type CapsuleOfferMessage,
   type CapsuleAckMessage,
+  type FundingTxMessage,
+  type FundingTxPayload,
 } from './messages.js';
 
 // Mock Crypto (for testing or advanced usage)

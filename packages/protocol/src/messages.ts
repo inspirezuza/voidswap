@@ -172,8 +172,8 @@ export const MpcResultSchema = z.object({
 export type MpcResult = z.infer<typeof MpcResultSchema>;
 
 export const KeygenAnnouncePayloadSchema = z.object({
-  mpcAlice: MpcResultSchema,
-  mpcBob: MpcResultSchema,
+  mpcAlice: MpcResultSchema.optional(),
+  mpcBob: MpcResultSchema.optional(),
   note: z.string().optional(),
 });
 
@@ -232,6 +232,28 @@ export const CapsuleAckMessageSchema = BaseMessageSchema.extend({
 export type CapsuleAckMessage = z.infer<typeof CapsuleAckMessageSchema>;
 
 // ============================================
+// Funding Tx Message
+// ============================================
+
+export const FundingTxPayloadSchema = z.object({
+  which: z.enum(['mpc_Alice', 'mpc_Bob']),
+  txHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/, 'Must be a valid 32-byte hex tx hash'),
+  fromAddress: EthAddressSchema,
+  toAddress: EthAddressSchema,
+  valueWei: DecimalStringSchema,
+});
+
+export type FundingTxPayload = z.infer<typeof FundingTxPayloadSchema>;
+
+export const FundingTxMessageSchema = BaseMessageSchema.extend({
+  type: z.literal('funding_tx'),
+  sid: z.string(), // Required
+  payload: FundingTxPayloadSchema,
+});
+
+export type FundingTxMessage = z.infer<typeof FundingTxMessageSchema>;
+
+// ============================================
 // Union Message Type
 // ============================================
 
@@ -241,6 +263,7 @@ export const MessageSchema = z.discriminatedUnion('type', [
   KeygenAnnounceMessageSchema,
   CapsuleOfferMessageSchema,
   CapsuleAckMessageSchema,
+  FundingTxMessageSchema,
   AbortMessageSchema,
   ErrorMessageSchema,
 ]);

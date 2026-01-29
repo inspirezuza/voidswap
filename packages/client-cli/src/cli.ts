@@ -17,6 +17,10 @@ export interface CliArgs {
   tamper: TamperField;
   tamperCapsule: boolean;
   verbose: boolean;
+  rpcUrl: string;
+  autoFund: boolean;
+  fundingKey?: string;
+  confirmations: number;
 }
 
 /**
@@ -38,6 +42,14 @@ export function parseArgs(argv: string[]): CliArgs {
   let rBRefund = 1000;
   let rARefund = 2000;
   let tamper: TamperField = 'none';
+  let tamperCapsule = false; // Default: false
+  let verbose = false; // Default: false
+  
+  // Chain defaults
+  let rpcUrl = 'http://127.0.0.1:8545';
+  let autoFund = false;
+  let fundingKey: string | undefined;
+  let confirmations = 1;
 
   // Parse args
   for (let i = 0; i < args.length; i++) {
@@ -99,6 +111,27 @@ export function parseArgs(argv: string[]): CliArgs {
         tamper = next;
         i++;
         break;
+      case '--tamperCapsule':
+        tamperCapsule = true;
+        break;
+      case '--verbose':
+        verbose = true;
+        break;
+      case '--rpc':
+        rpcUrl = next;
+        i++;
+        break;
+      case '--autoFund':
+        autoFund = true;
+        break;
+      case '--fundingKey':
+        fundingKey = next;
+        i++;
+        break;
+      case '--confirmations':
+        confirmations = parseInt(next, 10);
+        i++;
+        break;
     }
   }
 
@@ -109,10 +142,6 @@ export function parseArgs(argv: string[]): CliArgs {
   if (!room) {
     throw new Error('--room is required');
   }
-
-  // Check for specialized flags
-  const tamperCapsule = argv.includes('--tamperCapsule');
-  const verbose = argv.includes('--verbose');
 
   // Build and validate HandshakeParams
   const params = HandshakeParamsSchema.parse({
@@ -127,7 +156,19 @@ export function parseArgs(argv: string[]): CliArgs {
     rARefund,
   });
 
-  return { role, room, relay, params, tamper, tamperCapsule, verbose };
+  return {
+    role,
+    room,
+    relay,
+    params,
+    tamper,
+    tamperCapsule,
+    verbose,
+    rpcUrl,
+    autoFund,
+    fundingKey,
+    confirmations
+  };
 }
 
 /**

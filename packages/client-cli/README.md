@@ -76,3 +76,24 @@ Expected: Both abort with `Handshake params mismatch`
 | `--rARefund` | No | `2000` | Alice's refund round |
 | `--tamper` | No | `none` | Tamper field for testing: `vA`, `targetAlice`, `none` |
 | `--tamperCapsule` | No | `false` | Corrupts outgoing capsule proof (security test) |
+| `--rpc` | No | `http://127.0.0.1:8545` | Ethereum RPC URL |
+| `--autoFund` | No | `false` | Auto-fund MPC wallet |
+| `--fundingKey` | No | ENV var | Private key for funding (or use `VOIDSWAP_ALICE_FUNDING_KEY`/`VOIDSWAP_BOB_FUNDING_KEY`) |
+| `--confirmations` | No | `1` | Number of block confirmations to wait |
+
+## Auto-Funding with Anvil
+
+```bash
+# Start anvil
+anvil
+
+# Set funding keys (anvil defaults)
+set VOIDSWAP_ALICE_FUNDING_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+set VOIDSWAP_BOB_FUNDING_KEY=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+
+# Run Alice with auto-funding
+pnpm -C packages/client-cli dev -- --role alice --room test --autoFund --rpc http://127.0.0.1:8545
+
+# Run Bob with auto-funding (another terminal)
+pnpm -C packages/client-cli dev -- --role bob --room test --autoFund --rpc http://127.0.0.1:8545
+```

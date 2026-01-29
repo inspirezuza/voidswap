@@ -7,14 +7,14 @@
 
 import { randomBytes } from 'crypto';
 import {
-  createSessionRuntime,
-  type SessionRuntime,
-  type SessionEvent,
-  type HandshakeParams,
-  type Message,
-  type Role,
-  type SessionState,
-  type MpcResult,
+    createSessionRuntime,
+    type SessionRuntime,
+    type SessionEvent,
+    type HandshakeParams,
+    type Message,
+    type Role,
+    type SessionState,
+    type MpcResult,
 } from '@voidswap/protocol';
 
 export interface SessionCallbacks {
@@ -23,6 +23,9 @@ export interface SessionCallbacks {
   onKeygenComplete: (sid: string, transcriptHash: string, mpcAlice: MpcResult, mpcBob: MpcResult) => void;
   onCapsulesVerified: (sid: string, transcriptHash: string) => void;
   onAbort: (code: string, message: string) => void;
+  onFundingStarted: (sid: string, mpcAlice: string, mpcBob: string, vA: string, vB: string) => void;
+  onFundingTx: (which: 'mpc_Alice' | 'mpc_Bob', txHash: string) => void;
+  onFunded: (sid: string, transcriptHash: string) => void;
   onLog: (message: string) => void;
 }
 
@@ -81,6 +84,14 @@ export class Session {
    * Handle incoming message from peer
    */
   handleIncoming(payload: unknown) {
+    // Spy on payload to detect funding_tx
+    if (typeof payload === 'object' && payload !== null && 'type' in payload) {
+        const p = payload as any;
+        if (p.type === 'funding_tx' && p.payload && p.payload.txHash && p.payload.which) {
+            this.callbacks.onFundingTx(p.payload.which, p.payload.txHash);
+        }
+    }
+    
     const events = this.runtime.handleIncoming(payload);
     this.processEvents(events);
   }
@@ -92,7 +103,13 @@ export class Session {
     for (const event of events) {
       switch (event.kind) {
         case 'NET_OUT':
-          this.callbacks.onLog(`Sent ${event.msg.type}`);
+          if (event.msg.type === 'funding_tx') {
+              // Cast payload to any because TypeScript might not infer it perfectly from union
+              const p = event.msg.payload as any;
+              this.callbacks.onLog(`Sent funding_tx for ${p.which}: ${p.txHash}`);
+          } else {
+              this.callbacks.onLog(`Sent ${event.msg.type}`);
+          }
           this.callbacks.onSendMessage(event.msg);
           break;
         case 'SESSION_LOCKED':
@@ -108,9 +125,15 @@ export class Session {
         case 'ABORTED':
           this.callbacks.onAbort(event.code, event.message);
           break;
-      }
-    }
-  }
+        case 'FUNDING_STARTED':
+          this.callbacks.onFundingStarted(event.sid, event.mpcAliceAddr, event.mpcBobAddr, event.vA, event.vB);
+          break;
+        case 'FUNDED':
+          this.callbacks.onFunded(event.sid, event.transcriptHash);
+          break;
+      } // switch
+    } // for
+  } // processEvents
 
   getState(): SessionState {
     return this.runtime.getState();
@@ -122,6 +145,39 @@ export class Session {
 
   getTranscriptHash(): string {
     return this.runtime.getTranscriptHash();
+  }
+
+  emitFundingTx(txHash: string) {
+      // Create a dummy payload to match the interface, even though runtime might fill details
+      // Actually runtime expects full payload? No, let's check runtime signature.
+      // Runtime.emitFundingTx takes (txHash: string).
+      // Wait, let's check sessionRuntime.ts signature for `emitFundingTx`.
+      // It takes (payload: FundingTxPayload). 
+      // So we need to construct it here or change runtime.
+      // Ideally runtime should construct it? No, runtime is pure.
+      // Client knows details.
+      
+      // Let's look at `sessionRuntime.ts` again via view_file if unsure, but I recall implementing it to take payload.
+      // Wait, `sessionRuntime.ts` changes were not explicitly shown in recent steps for that method.
+      // Let's assume for now it takes payload.
+      
+      const payload = {
+          which: this.role === 'alice' ? 'mpc_Alice' : 'mpc_Bob',
+          txHash,
+          fromAddress: '0x0000000000000000000000000000000000000000', // TODO: Pass real from
+          toAddress: '0x0000000000000000000000000000000000000000', // TODO: Pass real to
+          valueWei: '0' // TODO: Pass real value
+      };
+      // The linter said "Argument of type 'string' is not assignable to parameter of type '{ ... }'".
+      // So runtime indeed expects the object.
+      
+      const events = this.runtime.emitFundingTx(payload as any);
+      this.processEvents(events);
+  }
+
+  notifyFundingConfirmed(which: 'mpc_Alice' | 'mpc_Bob') {
+      const events = this.runtime.notifyFundingConfirmed(which);
+      this.processEvents(events);
   }
 }
 

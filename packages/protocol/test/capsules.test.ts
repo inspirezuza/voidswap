@@ -108,13 +108,13 @@ describe('Capsule Exchange', () => {
       const aliceRecv5 = alice.handleIncoming(bobAck);
       const bobRecv5 = bob.handleIncoming(aliceAck);
       
-      // Check Final State
-      expect(alice.getState()).toBe('CAPSULES_VERIFIED');
-      expect(bob.getState()).toBe('CAPSULES_VERIFIED');
+      // Expect transition to FUNDING
+      expect(alice.getState()).toBe('FUNDING');
+      expect(bob.getState()).toBe('FUNDING');
       
       // Check Events
-      const aliceFinal = aliceRecv5.find(e => e.kind === 'CAPSULES_VERIFIED');
-      const bobFinal = bobRecv5.find(e => e.kind === 'CAPSULES_VERIFIED');
+      const aliceFinal = aliceRecv5.find(e => e.kind === 'FUNDING_STARTED');
+      const bobFinal = bobRecv5.find(e => e.kind === 'FUNDING_STARTED');
       expect(aliceFinal).toBeDefined();
       expect(bobFinal).toBeDefined();
       
@@ -138,13 +138,18 @@ describe('Capsule Exchange', () => {
       expect(bobOffer).toBeDefined();
 
       // Alice receives tampered offer
-      const aliceRecv4 = alice.handleIncoming(bobOffer);
+      // Alice receives tampered offer
+      const tamperedOffer = JSON.parse(JSON.stringify(bobOffer));
+      tamperedOffer.payload.proof = '0x' + 'f'.repeat(64); // Invalid
+      
+      const aliceRecv4 = alice.handleIncoming(tamperedOffer);
       
       expect(alice.getState()).toBe('ABORTED');
       
-      const nack = getNetOutMsgs(aliceRecv4).find(m => m.type === 'capsule_ack');
-      expect(nack).toBeDefined();
-      expect((nack as any).payload.ok).toBe(false);
+      // Expect Abort message, not NACK (since invalid proof is protocol error)
+      const abortMsg = getNetOutMsgs(aliceRecv4).find(m => m.type === 'abort');
+      expect(abortMsg).toBeDefined();
+      expect((abortMsg as any).payload.message).toBe('Invalid capsule proof');
       
       const abortEvent = aliceRecv4.find(e => e.kind === 'ABORTED');
       expect((abortEvent as any).code).toBe('PROTOCOL_ERROR');

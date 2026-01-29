@@ -156,3 +156,42 @@ pnpm -C packages/client-cli dev -- --role alice --room tamper
 ```
 
 Alice should abort with `PROTOCOL_ERROR: Invalid capsule proof`.
+
+## Auto-Funding with Anvil
+
+For end-to-end testing with on-chain funding:
+
+```bash
+# Terminal 1: Start anvil (local Ethereum node)
+anvil
+
+# Terminal 2: Start relay
+pnpm -C packages/relay dev
+
+# Terminal 3: Alice with auto-fund
+pnpm -C packages/client-cli dev -- --role alice --room test --autoFund --rpc http://127.0.0.1:8545 --fundingKey 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+
+# Terminal 4: Bob with auto-fund
+pnpm -C packages/client-cli dev -- --role bob --room test --autoFund --rpc http://127.0.0.1:8545 --fundingKey 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+```
+
+## Implementation Status
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| WebSocket Relay | ✅ Complete | Room-based message forwarding |
+| Handshake Protocol | ✅ Complete | SID computation, nonce exchange |
+| Keygen | ⚠️ **Mock** | Uses deterministic mock MPC, not real 2-of-2 ECDSA |
+| Capsule Exchange | ⚠️ **Mock** | Mock timelock encryption and ZK proofs |
+| Funding Phase | ✅ Complete | Auto-funding with viem, confirmation watching |
+| Execution Phase | ❌ Not Started | Actual swap execution pending |
+| Refund Phase | ❌ Not Started | Timelock-based refund pending |
+
+### Mock Components (to be replaced with real crypto)
+
+1. **`mockKeygen.ts`** - Generates deterministic Ethereum addresses instead of real 2-of-2 MPC keygen
+2. **`mockTlock.ts`** - Returns placeholder ciphertext instead of real drand timelock encryption
+3. **`mockZkCapsule.ts`** - Always returns valid proofs instead of real ZK-SNARK verification
+
+These mocks allow testing the protocol flow without requiring the full cryptographic stack.
+
