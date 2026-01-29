@@ -43,6 +43,15 @@ pnpm install
 pnpm test       # Run unit tests
 ```
 
+### [packages/adaptor-mock](./packages/adaptor-mock)
+Mock implementation of interactive ECDSA adaptor signatures.
+
+```bash
+cd packages/adaptor-mock
+pnpm install
+pnpm test       # Run unit tests
+```
+
 ## Quick Start
 
 ```bash
@@ -114,6 +123,15 @@ Both clients should reach `EXEC_READY` state.
 │  Alice ◄──fee_params_ack── Bob                                  │
 │                                                                 │
 │  [EXEC_READY: Nonces + fees agreed, ready for execution]        │
+├─────────────────────────────────────────────────────────────────┤
+│                     TEMPLATE SYNC PHASE                         │
+├─────────────────────────────────────────────────────────────────┤
+│  Alice ──tx_template_commit──► Bob                              │
+│  Alice ◄──tx_template_commit── Bob                              │
+│  Alice ──tx_template_ack───► Bob                                │
+│  Alice ◄──tx_template_ack─── Bob                                │
+│                                                                 │
+│  [EXEC_TEMPLATES_READY: Execution txs confirmed]                │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -157,7 +175,15 @@ Alice aborts with `Invalid capsule proof`.
 pnpm -C packages/client-cli dev -- --role alice --room test --autoFund ...
 pnpm -C packages/client-cli dev -- --role bob --room test --autoFund ... --tamperNonceReport
 ```
+```
 Both abort with `Nonce mismatch`.
+
+### Template Tamper Test
+```bash
+pnpm -C packages/client-cli dev -- --role alice --room test --autoFund ...
+pnpm -C packages/client-cli dev -- --role bob --room test --autoFund ... --tamperTemplateCommit
+```
+Both abort with `Invalid commit hash` or `Template digest mismatch`.
 
 ## Implementation Status
 
@@ -170,6 +196,7 @@ Both abort with `Nonce mismatch`.
 | Funding Phase | ✅ Complete | Auto-funding with viem, on-chain validation |
 | EXEC_PREP Phase | ✅ Complete | Nonce sync + fee params agreement |
 | TX Template | ✅ Complete | EIP-1559 transaction builder |
+| Template Sync | ✅ Complete | Deterministic digest verification |
 | Execution Phase | ❌ Not Started | Actual swap execution pending |
 | Refund Phase | ❌ Not Started | Timelock-based refund pending |
 
