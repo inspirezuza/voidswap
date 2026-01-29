@@ -16,6 +16,8 @@ import {
     type SessionState,
     type MpcResult,
     type FundingTxPayload,
+    type NonceReportPayload,
+    type FeeParamsPayload,
 } from '@voidswap/protocol';
 
 export interface SessionCallbacks {
@@ -27,6 +29,8 @@ export interface SessionCallbacks {
   onFundingStarted: (sid: string, mpcAlice: string, mpcBob: string, vA: string, vB: string) => void;
   onFundingTx: (which: 'mpc_Alice' | 'mpc_Bob', txHash: string, payload: FundingTxPayload) => void;
   onFunded: (sid: string, transcriptHash: string) => void;
+  onExecPrepStarted: (sid: string, mpcAlice: string, mpcBob: string) => void;
+  onExecReady: (sid: string, transcriptHash: string, nonces: { mpcAliceNonce: string; mpcBobNonce: string }, fee: FeeParamsPayload) => void;
   onLog: (message: string) => void;
 }
 
@@ -128,6 +132,12 @@ export class Session {
         case 'FUNDED':
           this.callbacks.onFunded(event.sid, event.transcriptHash);
           break;
+        case 'EXEC_PREP_STARTED':
+          this.callbacks.onExecPrepStarted(event.sid, event.mpcAlice, event.mpcBob);
+          break;
+        case 'EXEC_READY':
+          this.callbacks.onExecReady(event.sid, event.transcriptHash, event.nonces, event.fee);
+          break;
       } // switch
     } // for
   } // processEvents
@@ -160,7 +170,21 @@ export class Session {
       const events = this.runtime.notifyFundingConfirmed(which);
       this.processEvents(events);
   }
+
+  setLocalNonceReport(payload: NonceReportPayload) {
+      const events = this.runtime.setLocalNonceReport(payload);
+      this.processEvents(events);
+  }
+
+  proposeFeeParams(payload: FeeParamsPayload) {
+      const events = this.runtime.proposeFeeParams(payload);
+      this.processEvents(events);
+  }
+
+  getMpcAddresses(): { mpcAlice: string; mpcBob: string } | null {
+      return this.runtime.getMpcAddresses();
+  }
 }
 
 // Re-export types for convenience
-export type { SessionState };
+export type { SessionState, NonceReportPayload, FeeParamsPayload };

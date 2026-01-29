@@ -254,6 +254,69 @@ export const FundingTxMessageSchema = BaseMessageSchema.extend({
 export type FundingTxMessage = z.infer<typeof FundingTxMessageSchema>;
 
 // ============================================
+// Nonce Report Message (EXEC_PREP)
+// ============================================
+
+export const NonceReportPayloadSchema = z.object({
+  mpcAliceNonce: DecimalStringSchema,
+  mpcBobNonce: DecimalStringSchema,
+  blockNumber: DecimalStringSchema,
+  rpcTag: z.enum(['latest', 'pending']).optional().default('latest'),
+});
+
+export type NonceReportPayload = z.infer<typeof NonceReportPayloadSchema>;
+
+export const NonceReportMessageSchema = BaseMessageSchema.extend({
+  type: z.literal('nonce_report'),
+  sid: z.string(), // Required
+  payload: NonceReportPayloadSchema,
+});
+
+export type NonceReportMessage = z.infer<typeof NonceReportMessageSchema>;
+
+// ============================================
+// Fee Params Message (EXEC_PREP - Alice proposes)
+// ============================================
+
+export const FeeParamsPayloadSchema = z.object({
+  maxFeePerGasWei: DecimalStringSchema,
+  maxPriorityFeePerGasWei: DecimalStringSchema,
+  gasLimit: DecimalStringSchema,
+  mode: z.literal('fixed'), // PoC only supports fixed mode
+  proposer: z.literal('alice'), // PoC only Alice proposes
+});
+
+export type FeeParamsPayload = z.infer<typeof FeeParamsPayloadSchema>;
+
+export const FeeParamsMessageSchema = BaseMessageSchema.extend({
+  type: z.literal('fee_params'),
+  sid: z.string(), // Required
+  payload: FeeParamsPayloadSchema,
+});
+
+export type FeeParamsMessage = z.infer<typeof FeeParamsMessageSchema>;
+
+// ============================================
+// Fee Params Ack Message (EXEC_PREP - Bob acks)
+// ============================================
+
+export const FeeParamsAckPayloadSchema = z.object({
+  ok: z.boolean(),
+  reason: z.string().optional(),
+  feeParamsHash: z.string().regex(/^[0-9a-f]{64}$/, 'Must be a 64-char hex hash'),
+});
+
+export type FeeParamsAckPayload = z.infer<typeof FeeParamsAckPayloadSchema>;
+
+export const FeeParamsAckMessageSchema = BaseMessageSchema.extend({
+  type: z.literal('fee_params_ack'),
+  sid: z.string(), // Required
+  payload: FeeParamsAckPayloadSchema,
+});
+
+export type FeeParamsAckMessage = z.infer<typeof FeeParamsAckMessageSchema>;
+
+// ============================================
 // Union Message Type
 // ============================================
 
@@ -264,6 +327,9 @@ export const MessageSchema = z.discriminatedUnion('type', [
   CapsuleOfferMessageSchema,
   CapsuleAckMessageSchema,
   FundingTxMessageSchema,
+  NonceReportMessageSchema,
+  FeeParamsMessageSchema,
+  FeeParamsAckMessageSchema,
   AbortMessageSchema,
   ErrorMessageSchema,
 ]);
@@ -281,3 +347,4 @@ export function parseMessage(json: unknown): Message {
 // Re-export types for convenience
 export type Role = z.infer<typeof RoleSchema>;
 export type AbortCode = z.infer<typeof AbortCodeSchema>;
+

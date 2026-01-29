@@ -157,15 +157,19 @@ describe('Funding Phase', () => {
         bob.notifyFundingConfirmed('mpc_Alice');
         const bobFinal = bob.notifyFundingConfirmed('mpc_Bob');
 
-        // 4. Verify FUNDED state
-        expect(alice.getState()).toBe('FUNDED');
-        expect(bob.getState()).toBe('FUNDED');
+        // 4. Verify EXEC_PREP state (auto-transitioned from FUNDED)
+        expect(alice.getState()).toBe('EXEC_PREP');
+        expect(bob.getState()).toBe('EXEC_PREP');
 
         const aliceFundedEvent = aliceFinal.find(e => e.kind === 'FUNDED');
         const bobFundedEvent = bobFinal.find(e => e.kind === 'FUNDED');
+        const aliceExecPrepEvent = aliceFinal.find(e => e.kind === 'EXEC_PREP_STARTED');
+        const bobExecPrepEvent = bobFinal.find(e => e.kind === 'EXEC_PREP_STARTED');
 
         expect(aliceFundedEvent).toBeDefined();
-        expect(bobFundedEvent).toBeDefined(); 
+        expect(bobFundedEvent).toBeDefined();
+        expect(aliceExecPrepEvent).toBeDefined();
+        expect(bobExecPrepEvent).toBeDefined();
     });
 
     it('should emit FUNDING_TX_SEEN when peer funding_tx received', () => {

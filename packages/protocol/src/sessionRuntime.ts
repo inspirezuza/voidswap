@@ -7,7 +7,9 @@ import {
     type CapsuleAckMessage,
     type FundingTxMessage,
     type FundingTxPayload,
-    type MpcResult
+    type MpcResult,
+    type NonceReportPayload,
+    type FeeParamsPayload
 } from './messages.js';
 import { createHandshakeRuntime, type RuntimeEvent } from './handshakeRuntime.js';
 import { canonicalStringify } from './canonical.js';
@@ -21,6 +23,8 @@ export type SessionEvent =
   | { kind: 'FUNDING_STARTED'; sid: string; mpcAliceAddr: string; mpcBobAddr: string; vA: string; vB: string }
   | { kind: 'FUNDING_TX_SEEN'; sid: string; payload: FundingTxPayload }
   | { kind: 'FUNDED'; sid: string; transcriptHash: string }
+  | { kind: 'EXEC_PREP_STARTED'; sid: string; mpcAlice: string; mpcBob: string }
+  | { kind: 'EXEC_READY'; sid: string; transcriptHash: string; nonces: { mpcAliceNonce: string; mpcBobNonce: string }; fee: FeeParamsPayload }
   | { kind: 'ABORTED'; code: string; message: string };
 
 export type SessionState = 
@@ -33,6 +37,8 @@ export type SessionState =
   | 'CAPSULES_VERIFIED' 
   | 'FUNDING' 
   | 'FUNDED'
+  | 'EXEC_PREP'
+  | 'EXEC_READY'
   | 'ABORTED';
 
 export interface SessionRuntime {
@@ -40,9 +46,12 @@ export interface SessionRuntime {
   handleIncoming(rawPayload: unknown): SessionEvent[];
   notifyFundingConfirmed(which: 'mpc_Alice' | 'mpc_Bob'): SessionEvent[];
   emitFundingTx(tx: { txHash: string; fromAddress: string; toAddress: string; valueWei: string }): SessionEvent[];
+  setLocalNonceReport(payload: NonceReportPayload): SessionEvent[];
+  proposeFeeParams(payload: FeeParamsPayload): SessionEvent[];
   getState(): SessionState;
   getSid(): string | null;
   getTranscriptHash(): string;
+  getMpcAddresses(): { mpcAlice: string; mpcBob: string } | null;
 }
 
 export interface SessionRuntimeOptions {
@@ -78,6 +87,12 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
   // Funding State
   const fundingTxByWhich: Record<string, FundingTxPayload> = {}; // 'mpc_Alice' -> payload
   const fundingConfirmed: Record<string, boolean> = { mpc_Alice: false, mpc_Bob: false };
+
+  // EXEC_PREP State
+  let localNonces: NonceReportPayload | null = null;
+  let peerNonces: NonceReportPayload | null = null;
+  let feeParams: FeeParamsPayload | null = null;
+  let feeAcked = false;
 
   function emitAbort(code: string, message: string): SessionEvent[] {
     const abortMsg: Message = {
@@ -267,13 +282,58 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
       
       if (aliceConf && bobConf && aliceTx && bobTx) {
           state = 'FUNDED';
-          return [{
+          const fundedEvent: SessionEvent = {
               kind: 'FUNDED',
               sid: sid!,
               transcriptHash: getFullTranscriptHash()
-          }];
+          };
+          
+          // Auto-transition to EXEC_PREP
+          state = 'EXEC_PREP';
+          const mpcAliceAddr = role === 'alice' ? localMpc.address : peerMpc.address;
+          const mpcBobAddr = role === 'bob' ? localMpc.address : peerMpc.address;
+          
+          const execPrepEvent: SessionEvent = {
+              kind: 'EXEC_PREP_STARTED',
+              sid: sid!,
+              mpcAlice: mpcAliceAddr,
+              mpcBob: mpcBobAddr
+          };
+          
+          return [fundedEvent, execPrepEvent];
       }
       return [];
+  }
+
+  function checkExecReady(): SessionEvent[] {
+      if (state !== 'EXEC_PREP') return [];
+      
+      // Check nonces agree
+      if (!localNonces || !peerNonces) return [];
+      
+      const noncesAgree = 
+          localNonces.mpcAliceNonce === peerNonces.mpcAliceNonce &&
+          localNonces.mpcBobNonce === peerNonces.mpcBobNonce;
+      
+      if (!noncesAgree) {
+          return emitAbort('PROTOCOL_ERROR', `Nonce mismatch: local=${JSON.stringify(localNonces)}, peer=${JSON.stringify(peerNonces)}`);
+      }
+      
+      // Check fee params agreed
+      if (!feeParams || !feeAcked) return [];
+      
+      // All conditions met -> EXEC_READY
+      state = 'EXEC_READY';
+      return [{
+          kind: 'EXEC_READY',
+          sid: sid!,
+          transcriptHash: getFullTranscriptHash(),
+          nonces: {
+              mpcAliceNonce: localNonces.mpcAliceNonce,
+              mpcBobNonce: localNonces.mpcBobNonce
+          },
+          fee: feeParams
+      }];
   }
 
   function mapEvent(e: RuntimeEvent): SessionEvent[] {
@@ -294,7 +354,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
   }
 
   function handleIncoming(rawPayload: unknown): SessionEvent[] {
-    if (state === 'ABORTED' || state === 'FUNDED') return [];
+    if (state === 'ABORTED' || state === 'EXEC_READY') return [];
 
     let msg: Message;
     try {
@@ -318,7 +378,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
     }
 
     // Post-Handshake Validation (Anti-Replay)
-    if (state === 'KEYGEN' || state === 'CAPSULES_EXCHANGE' || state === 'FUNDING' || state === 'CAPSULES_VERIFIED') {
+    if (state === 'KEYGEN' || state === 'CAPSULES_EXCHANGE' || state === 'FUNDING' || state === 'CAPSULES_VERIFIED' || state === 'EXEC_PREP') {
         // SID Check
         if (msg.sid !== sid) {
              if (msg.type === 'abort') return [{ kind: 'ABORTED', code: (msg.payload as any).code, message: (msg.payload as any).message }];
@@ -497,6 +557,86 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
       }
     }
 
+    // EXEC_PREP Logic
+    if (state === 'EXEC_PREP') {
+        if (msg.type === 'nonce_report') {
+            // Validate sid and from
+            if (peerNonces) {
+                // Idempotency check
+                const stored = canonicalStringify(peerNonces);
+                const received = canonicalStringify(msg.payload);
+                if (stored !== received) {
+                    return emitAbort('PROTOCOL_ERROR', 'Conflicting nonce_report');
+                }
+                return []; // Idempotent
+            }
+            
+            peerNonces = msg.payload;
+            return checkExecReady();
+        }
+        
+        if (msg.type === 'fee_params') {
+            // Only Alice proposes (Bob receives)
+            if (role !== 'bob') {
+                return emitAbort('PROTOCOL_ERROR', 'Only Bob receives fee_params');
+            }
+            
+            if (msg.payload.proposer !== 'alice' || msg.payload.mode !== 'fixed') {
+                return emitAbort('PROTOCOL_ERROR', 'Invalid fee_params proposal');
+            }
+            
+            // Store and compute hash for ack
+            feeParams = msg.payload;
+            const hash = createHash('sha256')
+                .update(canonicalStringify(msg.payload), 'utf8')
+                .digest('hex');
+            
+            // Send ack
+            const ackMsg: Message = {
+                type: 'fee_params_ack',
+                from: role,
+                seq: postSeq++,
+                sid: sid!,
+                payload: {
+                    ok: true,
+                    feeParamsHash: hash
+                }
+            };
+            recordPost(ackMsg);
+            feeAcked = true; // Bob considers it acked when he sends ack
+            
+            const events: SessionEvent[] = [{ kind: 'NET_OUT', msg: ackMsg }];
+            events.push(...checkExecReady());
+            return events;
+        }
+        
+        if (msg.type === 'fee_params_ack') {
+            // Only Alice receives ack (from Bob)
+            if (role !== 'alice') {
+                return emitAbort('PROTOCOL_ERROR', 'Only Alice receives fee_params_ack');
+            }
+            
+            if (!feeParams) {
+                return emitAbort('PROTOCOL_ERROR', 'Received fee_params_ack before proposing');
+            }
+            
+            const expectedHash = createHash('sha256')
+                .update(canonicalStringify(feeParams), 'utf8')
+                .digest('hex');
+            
+            if (msg.payload.feeParamsHash !== expectedHash) {
+                return emitAbort('PROTOCOL_ERROR', `Fee params hash mismatch: expected ${expectedHash}, got ${msg.payload.feeParamsHash}`);
+            }
+            
+            if (!msg.payload.ok) {
+                return emitAbort('PROTOCOL_ERROR', `Fee params rejected: ${msg.payload.reason}`);
+            }
+            
+            feeAcked = true;
+            return checkExecReady();
+        }
+    }
+
     return [];
   }
 
@@ -531,11 +671,87 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
       return checkFundingComplete();
   }
 
+  function setLocalNonceReport(payload: NonceReportPayload): SessionEvent[] {
+      if (state !== 'EXEC_PREP') {
+          return emitAbort('PROTOCOL_ERROR', 'Cannot set nonce report outside EXEC_PREP state');
+      }
+      
+      if (localNonces) {
+          // Idempotency check
+          const stored = canonicalStringify(localNonces);
+          const received = canonicalStringify(payload);
+          if (stored !== received) {
+              return emitAbort('PROTOCOL_ERROR', 'Conflicting local nonce report');
+          }
+          return []; // Idempotent
+      }
+      
+      localNonces = payload;
+      
+      // Emit NET_OUT nonce_report
+      const msg: Message = {
+          type: 'nonce_report',
+          from: role,
+          seq: postSeq++,
+          sid: sid!,
+          payload
+      };
+      recordPost(msg);
+      
+      const events: SessionEvent[] = [{ kind: 'NET_OUT', msg }];
+      events.push(...checkExecReady());
+      return events;
+  }
+
+  function proposeFeeParams(payload: FeeParamsPayload): SessionEvent[] {
+      if (state !== 'EXEC_PREP') {
+          return emitAbort('PROTOCOL_ERROR', 'Cannot propose fee params outside EXEC_PREP state');
+      }
+      
+      if (role !== 'alice') {
+          return emitAbort('PROTOCOL_ERROR', 'Only Alice can propose fee params');
+      }
+      
+      if (feeParams) {
+          // Idempotency check
+          const stored = canonicalStringify(feeParams);
+          const received = canonicalStringify(payload);
+          if (stored !== received) {
+              return emitAbort('PROTOCOL_ERROR', 'Conflicting fee params proposal');
+          }
+          return []; // Idempotent
+      }
+      
+      feeParams = payload;
+      
+      // Emit NET_OUT fee_params
+      const msg: Message = {
+          type: 'fee_params',
+          from: role,
+          seq: postSeq++,
+          sid: sid!,
+          payload
+      };
+      recordPost(msg);
+      
+      return [{ kind: 'NET_OUT', msg }];
+  }
+
+  function getMpcAddresses(): { mpcAlice: string; mpcBob: string } | null {
+      if (!localMpc || !peerMpc) return null;
+      return {
+          mpcAlice: role === 'alice' ? localMpc.address : peerMpc.address,
+          mpcBob: role === 'bob' ? localMpc.address : peerMpc.address
+      };
+  }
+
   return {
     startHandshake,
     handleIncoming,
     notifyFundingConfirmed,
     emitFundingTx,
+    setLocalNonceReport,
+    proposeFeeParams,
     getState: () => state,
     getSid: () => sid,
     getTranscriptHash: () => {
@@ -544,6 +760,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
         }
         return handshake.getTranscriptHash();
     },
+    getMpcAddresses,
   };
 }
 

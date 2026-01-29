@@ -122,3 +122,24 @@ export async function validateFundingTx(
     }
 }
 
+/**
+ * Get the transaction count (nonce) for an address.
+ */
+export async function getNonce(
+    publicClient: PublicClient,
+    address: Hex,
+    blockTag: 'latest' | 'pending' = 'latest'
+): Promise<bigint> {
+    const count = await publicClient.getTransactionCount({
+        address,
+        blockTag
+    });
+    return BigInt(count);
+}
+
+/**
+ * Get the current block number.
+ */
+export async function getBlockNumber(publicClient: PublicClient): Promise<bigint> {
+    return await publicClient.getBlockNumber();
+}

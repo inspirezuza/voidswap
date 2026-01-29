@@ -8,7 +8,7 @@ import { parseArgs, applyTamper } from './cli.js';
 import { Transport } from './transport.js';
 import { Session } from './handshake.js';
 import type { Message, MpcResult, FundingTxPayload } from '@voidswap/protocol';
-import { createClients, sendEthTransfer, validateFundingTx } from './chain.js';
+import { createClients, sendEthTransfer, validateFundingTx, getNonce, getBlockNumber } from './chain.js';
 import { formatEther } from 'viem';
 
 function log(message: string) {
@@ -163,7 +163,72 @@ async function main() {
              log('');
              log('='.repeat(60));
              log(`STATE: FUNDED`);
-             log(`All funding confirmed. Ready for execution.`);
+             log(`All funding confirmed.`);
+             log(`Transcript Hash: ${transcriptHash}`);
+             log('='.repeat(60));
+             // Don't exit - wait for EXEC_PREP_STARTED
+        },
+        onExecPrepStarted: async (sid: string, mpcAlice: string, mpcBob: string) => {
+             log('');
+             log('='.repeat(60));
+             log(`STATE: EXEC_PREP_STARTED`);
+             log(`Preparing execution...`);
+             log(`MPC Alice: ${mpcAlice}`);
+             log(`MPC Bob:   ${mpcBob}`);
+             log('='.repeat(60));
+             
+             try {
+                 const { publicClient } = createClients(args.rpcUrl);
+                 
+                 // Query nonces for BOTH MPC addresses
+                 const aliceNonce = await getNonce(publicClient, mpcAlice as `0x${string}`, 'latest');
+                 const bobNonce = await getBlockNumber(publicClient) > 0n 
+                     ? await getNonce(publicClient, mpcBob as `0x${string}`, 'latest') 
+                     : 0n;
+                 const bobNonceActual = await getNonce(publicClient, mpcBob as `0x${string}`, 'latest');
+                 const blockNum = await getBlockNumber(publicClient);
+                 
+                 log(`Nonces: mpc_Alice=${aliceNonce}, mpc_Bob=${bobNonceActual} (block ${blockNum})`);
+                 
+                 // Apply tamper if requested
+                 let reportedBobNonce = bobNonceActual.toString();
+                 if ((args as any).tamperNonceReport && args.role === 'bob') {
+                     const tampered = (bobNonceActual + 1n).toString();
+                     log(`\u26a0\ufe0f TAMPER: Reporting bobNonce as ${tampered} instead of ${bobNonceActual}`);
+                     reportedBobNonce = tampered;
+                 }
+                 
+                 // Set local nonce report
+                 session.setLocalNonceReport({
+                     mpcAliceNonce: aliceNonce.toString(),
+                     mpcBobNonce: reportedBobNonce,
+                     blockNumber: blockNum.toString(),
+                     rpcTag: 'latest',
+                 });
+                 
+                 // Alice proposes fee params
+                 if (args.role === 'alice') {
+                     log('Alice proposing fee params...');
+                     session.proposeFeeParams({
+                         maxFeePerGasWei: '20000000000',       // 20 gwei
+                         maxPriorityFeePerGasWei: '1000000000',// 1 gwei
+                         gasLimit: '21000',
+                         mode: 'fixed',
+                         proposer: 'alice',
+                     });
+                 }
+             } catch (err: any) {
+                 log(`EXEC_PREP failed: ${err.message}`);
+                 process.exit(1);
+             }
+        },
+        onExecReady: (sid: string, transcriptHash: string, nonces: { mpcAliceNonce: string; mpcBobNonce: string }, fee: any) => {
+             log('');
+             log('='.repeat(60));
+             log(`STATE: EXEC_READY`);
+             log(`All parties agreed.`);
+             log(`Nonces: mpc_Alice=${nonces.mpcAliceNonce}, mpc_Bob=${nonces.mpcBobNonce}`);
+             log(`Fee: maxFee=${fee.maxFeePerGasWei}, priorityFee=${fee.maxPriorityFeePerGasWei}, gasLimit=${fee.gasLimit}`);
              log(`Transcript Hash: ${transcriptHash}`);
              log('='.repeat(60));
              

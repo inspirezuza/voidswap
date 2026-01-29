@@ -80,6 +80,12 @@ export {
   type CapsuleAckMessage,
   type FundingTxMessage,
   type FundingTxPayload,
+  type NonceReportMessage,
+  type NonceReportPayload,
+  type FeeParamsMessage,
+  type FeeParamsPayload,
+  type FeeParamsAckMessage,
+  type FeeParamsAckPayload,
 } from './messages.js';
 
 // Mock Crypto (for testing or advanced usage)
