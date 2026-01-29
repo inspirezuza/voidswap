@@ -16,6 +16,7 @@ export interface CliArgs {
   params: HandshakeParams;
   tamper: TamperField;
   tamperCapsule: boolean;
+  verbose: boolean;
 }
 
 /**
@@ -109,8 +110,9 @@ export function parseArgs(argv: string[]): CliArgs {
     throw new Error('--room is required');
   }
 
-  // Check for tamperCapsule flag
+  // Check for specialized flags
   const tamperCapsule = argv.includes('--tamperCapsule');
+  const verbose = argv.includes('--verbose');
 
   // Build and validate HandshakeParams
   const params = HandshakeParamsSchema.parse({
@@ -125,7 +127,7 @@ export function parseArgs(argv: string[]): CliArgs {
     rARefund,
   });
 
-  return { role, room, relay, params, tamper, tamperCapsule };
+  return { role, room, relay, params, tamper, tamperCapsule, verbose };
 }
 
 /**

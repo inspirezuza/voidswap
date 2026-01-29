@@ -48,29 +48,32 @@ async function main() {
         log(`transcriptHash=${transcriptHash}`);
         log('='.repeat(60));
         log('');
-        // Handshake locked, proceed to Keygen automatically
       },
       onKeygenComplete: (sid: string, transcriptHash: string, mpcAlice: MpcResult, mpcBob: MpcResult) => {
         log('');
         log('='.repeat(60));
         log(`STATE: KEYGEN_COMPLETE`);
-        log(`sid=${sid}`);
-        log(`transcriptHash=${transcriptHash}`);
-        log('-'.repeat(60));
+        if (args.verbose) {
+           log(`sid=${sid}`);
+           log(`transcriptHash=${transcriptHash}`);
+           log('-'.repeat(60));
+        }
         log(`Alice Address: ${mpcAlice.address}`);
         log(`Bob Address:   ${mpcBob.address}`);
         log('='.repeat(60));
         log('');
-        // Keygen complete, proceed to Capsules automatically
       },
       onCapsulesVerified: (sid: string, transcriptHash: string) => {
         log('');
         log('='.repeat(60));
         log(`STATE: CAPSULES_VERIFIED`);
-        log(`sid=${sid}`);
-        log(`transcriptHash=${transcriptHash}`);
-        log('='.repeat(60));
+        if (args.verbose) {
+           log(`sid=${sid}`);
+           log(`transcriptHash=${transcriptHash}`);
+           log('-'.repeat(60));
+        }
         log('REFUND CAPSULES EXCHANGED AND VERIFIED. SECURE TO FUND.');
+        log('='.repeat(60));
         log('');
 
         // Exit after a short delay

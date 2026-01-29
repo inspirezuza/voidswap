@@ -47,7 +47,7 @@ pnpm -C packages/client-cli dev -- --role alice --room test
 pnpm -C packages/client-cli dev -- --role bob --room test
 ```
 
-Both clients should print `SESSION_LOCKED` with identical SID and `transcriptHash`.
+Both clients should print `state` transitions without repetitive hashes (unless `--verbose` is used).
 
 ## Security Features
 

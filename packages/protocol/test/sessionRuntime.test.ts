@@ -89,9 +89,9 @@ describe('SessionRuntime', () => {
     const aliceRecv3 = alice.handleIncoming(bobKeygenAnnounce);
     const bobRecv3 = bob.handleIncoming(aliceKeygenAnnounce);
 
-    // Both should complete
-    expect(alice.getState()).toBe('KEYGEN_COMPLETE');
-    expect(bob.getState()).toBe('KEYGEN_COMPLETE');
+    // Both should complete KEYGEN and move to CAPSULES_EXCHANGE
+    expect(alice.getState()).toBe('CAPSULES_EXCHANGE');
+    expect(bob.getState()).toBe('CAPSULES_EXCHANGE');
 
     const aliceComplete = findKeygenCompleteEvent(aliceRecv3);
     const bobComplete = findKeygenCompleteEvent(bobRecv3);
@@ -107,6 +107,12 @@ describe('SessionRuntime', () => {
 
     // Verify determinism against mockKeygen
     const expectedAliceMpc = mockKeygen(sid, 'alice');
+    
+    if (JSON.stringify(aliceComplete?.mpcAlice) !== JSON.stringify(bobComplete?.mpcAlice)) {
+       console.log('Alice MPC:', aliceComplete?.mpcAlice);
+       console.log('Bob MPC:', bobComplete?.mpcAlice);
+    }
+
     expect(aliceComplete?.mpcAlice).toEqual(expectedAliceMpc);
   });
 
@@ -145,37 +151,31 @@ describe('SessionRuntime', () => {
     expect(abortEvent?.code).toBe('PROTOCOL_ERROR');
   });
 
-  it('should ignore idempotent keygen announce', () => {
+  it('should reject replay (anti-replay)', () => {
     const alice = createSessionRuntime({ role: 'alice', params: sampleParams, localNonce: aliceNonce });
     const bob = createSessionRuntime({ role: 'bob', params: sampleParams, localNonce: bobNonce });
 
     // Setup: complete everything
     const aliceStart = alice.startHandshake();
     const bobStart = bob.startHandshake();
-    
-    // Alice processes Bob's hello
     const aliceRecv1 = alice.handleIncoming(getNetOutMsgs(bobStart)[0]);
-    // Bob processes Alice's hello
     const bobRecv1 = bob.handleIncoming(getNetOutMsgs(aliceStart)[0]);
-    
-    // Alice processes Bob's ack -> locks
     const aliceRecv2 = alice.handleIncoming(getNetOutMsgs(bobRecv1)[0]); 
-    // Bob processes Alice's ack -> locks
     const bobRecv2 = bob.handleIncoming(getNetOutMsgs(aliceRecv1)[0]);
-
     const aliceAnnounce = getNetOutMsgs(aliceRecv2)[0];
     
-    // Bob receives Alice announce 1st time
-    const eventsPhase1 = bob.handleIncoming(aliceAnnounce);
-    const abort1 = eventsPhase1.find(e => e.kind === 'ABORTED');
-    if (abort1) {
-      console.error('Idempotency Test - Phase 1 Abort:', abort1);
-    }
-    expect(bob.getState()).toBe('KEYGEN_COMPLETE');
+    // Bob receives Alice announce 1st time (OK)
+    bob.handleIncoming(aliceAnnounce);
+    expect(bob.getState()).toBe('CAPSULES_EXCHANGE'); // Advanced
 
-    // Bob receives SAME announce 2nd time
+    // Bob receives SAME announce 2nd time (Replay)
     const bobEvents2 = bob.handleIncoming(aliceAnnounce);
-    expect(bob.getState()).toBe('KEYGEN_COMPLETE'); // Still complete, didn't abort
-    expect(bobEvents2).toHaveLength(0); // No new events
+    
+    // Expect ABORT due to anti-replay
+    expect(bob.getState()).toBe('ABORTED');
+    const abort = bobEvents2.find(e => e.kind === 'ABORTED') as any;
+    expect(abort).toBeTruthy();
+    expect(abort.code).toBe('BAD_MESSAGE');
+    expect(abort.message).toMatch(/Replay\/out-of-order/);
   });
 });

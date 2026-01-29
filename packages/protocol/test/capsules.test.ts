@@ -64,19 +64,23 @@ function setupKeygenComplete(tamperCapsule = false) {
        throw new Error(`Keygen announce missing: A=${!!aliceAnnounce} B=${!!bobAnnounce}`);
     }
 
+    // Verify events
+    const aliceLocked = aliceRecv2.find(e => e.kind === 'SESSION_LOCKED');
+    if (!aliceLocked) throw new Error('Alice failed to lock');
+
     // Deliver Keygen Announcements
     // Alice receives Bob's announce -> KEYGEN_COMPLETE -> CAPSULES_EXCHANGE -> Sends Offer
     const aliceRecv3 = alice.handleIncoming(bobAnnounce); 
     // Bob receives Alice's announce -> KEYGEN_COMPLETE -> CAPSULES_EXCHANGE -> Sends Offer
     const bobRecv3 = bob.handleIncoming(aliceAnnounce);
 
-    return { alice, bob, aliceRecv3, bobRecv3 };
+    return { alice, bob, aliceRecv3, bobRecv3, aliceLocked };
 }
 
 describe('Capsule Exchange', () => {
     
   it('should complete capsule exchange (Happy Path)', () => {
-      const { alice, bob, aliceRecv3, bobRecv3 } = setupKeygenComplete();
+      const { alice, bob, aliceRecv3, bobRecv3, aliceLocked } = setupKeygenComplete();
 
       expect(alice.getState()).toBe('CAPSULES_EXCHANGE');
       expect(bob.getState()).toBe('CAPSULES_EXCHANGE');
@@ -113,6 +117,16 @@ describe('Capsule Exchange', () => {
       const bobFinal = bobRecv5.find(e => e.kind === 'CAPSULES_VERIFIED');
       expect(aliceFinal).toBeDefined();
       expect(bobFinal).toBeDefined();
+      
+      expect(bobFinal).toBeDefined();
+      
+      const hashLocked = (aliceLocked as any).transcriptHash;
+      const hashFinal = (aliceFinal as any).transcriptHash;
+      
+      // Hash should evolve
+      expect(hashFinal).not.toBe(hashLocked);
+      
+      // Peers should agree
       expect((aliceFinal as any).transcriptHash).toBe((bobFinal as any).transcriptHash);
   });
 

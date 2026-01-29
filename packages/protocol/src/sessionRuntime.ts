@@ -9,14 +9,14 @@
  */
 
 import {
-    type Message,
-    type Role,
-    type HandshakeParams,
-    type KeygenAnnounceMessage,
-    type CapsuleOfferMessage,
-    type CapsuleAckMessage,
-    type MpcResult,
-    parseMessage
+  type Message,
+  type Role,
+  type HandshakeParams,
+  type KeygenAnnounceMessage,
+  type CapsuleOfferMessage,
+  type CapsuleAckMessage,
+  type MpcResult,
+  parseMessage
 } from './messages.js';
 import { createHandshakeRuntime, type RuntimeEvent as HandshakeEvent } from './handshakeRuntime.js';
 import { mockKeygen, mockYShare } from './mockKeygen.js';
@@ -64,6 +64,12 @@ export interface SessionRuntime {
 // Implementation
 // ============================================
 
+// ... imports ...
+import { createHash } from 'crypto';
+import { transcriptHash, appendRecord, type TranscriptRecord } from './transcript.js';
+
+// ... Types ...
+
 export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntime {
   const { role, params, localNonce, tamperCapsule } = opts;
   const peerRole = role === 'alice' ? 'bob' : 'alice';
@@ -75,6 +81,14 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
   let state: SessionState = 'HANDSHAKE';
   let sid: string | null = null;
   
+  // Post-Handshake Transcript & Sequencing
+  let postTranscript: TranscriptRecord[] = [];
+  let postSeq = 100; // Start high to distinguish from handshake
+  const lastPostSeqBySender: Record<Role, number | null> = {
+    alice: null,
+    bob: null,
+  };
+
   // Keygen State
   let localMpc: MpcResult | null = null;
   let peerMpc: MpcResult | null = null;
@@ -84,22 +98,57 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
   let capsuleReceived = false;
   let capsuleAcked = false;
 
+  // Helper to append valid messages to post-handshake transcript
+  function recordPost(msg: Message) {
+    postTranscript = appendRecord(postTranscript, {
+       seq: msg.seq,
+       from: msg.from,
+       type: msg.type,
+       payload: msg.payload,
+    });
+  }
+
+  // Helper to compute full transcript hash (Handshake + Post)
+  function getFullTranscriptHash(): string {
+     const handshakeHash = handshake.getTranscriptHash();
+     const postHash = transcriptHash(postTranscript);
+     
+     // full = sha256(canonical({ handshakeHash, postHash }))
+     const canonical = canonicalStringify({ handshakeHash, postHash });
+     return '0x' + createHash('sha256').update(canonical).digest('hex');
+  }
+
   // Helper to convert HandshakeEvent -> SessionEvent
   function mapEvent(e: HandshakeEvent): SessionEvent[] {
     if (e.kind === 'LOCKED') {
-      return [{ kind: 'SESSION_LOCKED', sid: e.sid, transcriptHash: e.transcriptHash }]; // Wrapped in array for consistency with usage
+      return [{ kind: 'SESSION_LOCKED', sid: e.sid, transcriptHash: e.transcriptHash }]; 
     }
-    // NET_OUT and ABORTED map directly (properties match enough or we cast)
     return [e as SessionEvent];
   }
 
-  function abort(code: string, message: string): SessionEvent[] {
+  function emitAbort(code: string, message: string): SessionEvent[] {
     state = 'ABORTED';
+    
+    // Construct abort message if possible (with SID and post-seq if locked)
+    if (sid) { 
+        const abortMsg: Message = {
+            type: 'abort',
+            from: role,
+            seq: postSeq++,
+            sid: sid,
+            payload: { code: code as any, message }
+        };
+        recordPost(abortMsg);
+        return [
+            { kind: 'NET_OUT', msg: abortMsg },
+            { kind: 'ABORTED', code, message }
+        ];
+    }
+
     return [{ kind: 'ABORTED', code, message }];
   }
 
   // Handle transition to KEYGEN when handshake locks
-  // ... (handleLock implementation same as before)
   function handleLock(sidValue: string): SessionEvent[] {
     sid = sidValue;
     state = 'KEYGEN';
@@ -107,11 +156,11 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
     // Generate local mock keygen data
     localMpc = mockKeygen(sidValue, role);
 
-    // Initial announcement
+    // Initial announcement with tracked seq
     const announceMsg: KeygenAnnounceMessage = {
       type: 'keygen_announce',
       from: role,
-      seq: 0, 
+      seq: postSeq++, 
       sid: sidValue,
       payload: {
         mpcAlice: mockKeygen(sidValue, 'alice'),
@@ -119,6 +168,8 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
         note: 'mock-generated',
       },
     };
+    
+    recordPost(announceMsg);
 
     return [
       { kind: 'NET_OUT', msg: announceMsg },
@@ -128,10 +179,6 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
   // Handle transition to CAPSULES_EXCHANGE
   function startCapsuleExchange(): SessionEvent[] {
     state = 'CAPSULES_EXCHANGE';
-    
-    // Construct local capsule offer
-    // Alice sends to Bob for Bob's share of MPC_Bob (refund_mpc_Bob) at rBRefund
-    // Bob sends to Alice for Alice's share of MPC_Alice (refund_mpc_Alice) at rARefund
     
     let targetCapsuleRole: 'refund_mpc_Alice' | 'refund_mpc_Bob';
     let refundRound: number;
@@ -153,20 +200,17 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
     const proofInput = { ...tlockInput, ct };
     let { proof } = mockProveCapsule(proofInput);
     
-    // Tamper hook (Simulate corrupt proof)
+    // Tamper hook
     if (tamperCapsule && role === 'bob') {
-      proof = proof.replace(/[a-f0-9]$/, 'x'); // Invalid hex or just change char
-      if (proof === proofInput.ct) proof = proof + '1'; // Ensure differ if somehow colliding
-       // Replace last char with something else hex to keep regex valid but proof invalid
-       const last = proof[proof.length - 1];
-       const next = last === 'a' ? 'b' : 'a';
-       proof = proof.substring(0, proof.length - 1) + next;
+      const last = proof[proof.length - 1];
+      const next = last === 'a' ? 'b' : 'a';
+      proof = proof.substring(0, proof.length - 1) + next;
     }
 
     const offerMsg: CapsuleOfferMessage = {
       type: 'capsule_offer',
       from: role,
-      seq: 1, // Phase 2 seq
+      seq: postSeq++,
       sid: sid!,
       payload: {
         role: targetCapsuleRole,
@@ -178,18 +222,22 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
     };
 
     capsuleSent = true;
+    recordPost(offerMsg);
+    
     return [{ kind: 'NET_OUT', msg: offerMsg }];
   }
 
   function checkKeygenComplete(): SessionEvent[] {
     if (state === 'KEYGEN' && localMpc && peerMpc) {
-      // Transition to CAPSULES_EXCHANGE immediately
+      // Use FULL transcript hash now? No, at KEYGEN_COMPLETE we only have keygen messages.
+      // But we should use the evolving hash.
+      
       const keygenEvent: SessionEvent = {
         kind: 'KEYGEN_COMPLETE',
         sid: sid!,
-        transcriptHash: handshake.getTranscriptHash(), 
-        mpcAlice: mockKeygen(sid!, 'alice'),
-        mpcBob: mockKeygen(sid!, 'bob'),
+        transcriptHash: getFullTranscriptHash(), 
+        mpcAlice: role === 'alice' ? localMpc! : peerMpc!,
+        mpcBob: role === 'bob' ? localMpc! : peerMpc!,
       };
       
       const capsuleEvents = startCapsuleExchange();
@@ -205,7 +253,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
       return [{
         kind: 'CAPSULES_VERIFIED',
         sid: sid!,
-        transcriptHash: handshake.getTranscriptHash(),
+        transcriptHash: getFullTranscriptHash(),
       }];
     }
     return [];
@@ -214,10 +262,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
   function startHandshake(): SessionEvent[] {
     if (state !== 'HANDSHAKE') return [];
     
-    // Delegate to handshake
     const events = handshake.start();
-    
-    // Map events
     const sessionEvents: SessionEvent[] = [];
     for (const e of events) {
       sessionEvents.push(...mapEvent(e));
@@ -235,7 +280,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
     try {
       msg = parseMessage(rawPayload);
     } catch {
-      return abort('BAD_MESSAGE', 'Parse failed');
+      return emitAbort('BAD_MESSAGE', 'Parse failed');
     }
 
     // Handshake Phase
@@ -252,14 +297,34 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
       return sessionEvents;
     }
 
-    // Keygen Phase
+    // Post-Handshake Validation (Anti-Replay)
+    if (state === 'KEYGEN' || state === 'CAPSULES_EXCHANGE') {
+        // Must have SID
+        if (msg.sid !== sid) {
+             // If implicit abort, we might just ignore
+             if (msg.type === 'abort') return [{ kind: 'ABORTED', code: (msg.payload as any).code, message: (msg.payload as any).message }];
+             return emitAbort('SID_MISMATCH', `Expected ${sid}, got ${msg.sid}`);
+        }
+        
+        // Ignore self
+        if (msg.from === role) return [];
+        
+        // Enforce Seq
+        const lastSeq = lastPostSeqBySender[msg.from];
+        if (msg.seq < 100) return emitAbort('BAD_MESSAGE', 'Post-handshake seq must be >= 100');
+        if (lastSeq !== null && msg.seq <= lastSeq) {
+             return emitAbort('BAD_MESSAGE', `Replay/out-of-order: seq ${msg.seq} <= last ${lastSeq}`);
+        }
+        lastPostSeqBySender[msg.from] = msg.seq;
+        
+        // Record It
+        recordPost(msg);
+    }
+
+    // Keygen Logic
     if (state === 'KEYGEN') {
       if (msg.type !== 'keygen_announce') return [];
 
-      if (msg.sid !== sid) return abort('SID_MISMATCH', `Expected ${sid}, got ${msg.sid}`);
-      if (msg.from === role) return []; 
-
-      // Idempotency / Conflict check for Keygen (same as before)
       const expectedCanonical = canonicalStringify({ 
         mpcAlice: mockKeygen(sid!, 'alice'), 
         mpcBob: mockKeygen(sid!, 'bob') 
@@ -270,80 +335,74 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
       });
 
       if (expectedCanonical !== receivedCanonical) {
-        return abort('PROTOCOL_ERROR', 'Conflicting keygen data (determinism check failed)');
+        return emitAbort('PROTOCOL_ERROR', 'Conflicting keygen data');
       }
 
-      if (peerMpc) return []; // Already done
+      if (peerMpc) return []; // Idempotent ignore (seq check already passed so this is a new message with duplicated payload? or redundant logic?)
+      // Actually seq check ensures we don't process exact SAME message. 
+      // But peer could send new message with same payload? 
+      // Safe to just process.
+
       peerMpc = role === 'alice' ? msg.payload.mpcBob : msg.payload.mpcAlice; 
       
       return checkKeygenComplete();
     }
     
-    // Capsule Exchange Phase
+    // Capsule Phase
     if (state === 'CAPSULES_EXCHANGE') {
-      if (msg.sid !== sid) {
-        // We might ignore or abort. Abort is safer for strictness.
-        if (msg.type === 'capsule_offer' || msg.type === 'capsule_ack') {
-           return abort('SID_MISMATCH', `Expected ${sid}, got ${msg.sid}`);
-        }
-        return []; // Ignore other types
-      }
-
       if (msg.type === 'capsule_offer') {
-        if (msg.from === role) return []; 
-        
-        // Validate Offer
-        // Expect role/refundRound based on PEER
         let expectedRole: 'refund_mpc_Alice' | 'refund_mpc_Bob';
         let expectedRound: number;
         
         if (role === 'alice') {
-             // Expect from Bob: refund_mpc_Alice at rARefund
              expectedRole = 'refund_mpc_Alice';
              expectedRound = params.rARefund;
         } else {
-             // Expect from Alice: refund_mpc_Bob at rBRefund
              expectedRole = 'refund_mpc_Bob';
              expectedRound = params.rBRefund;
         }
         
-        if (msg.payload.role !== expectedRole) {
-           return abort('PROTOCOL_ERROR', `Unexpected capsule role: ${msg.payload.role}`);
+        if (msg.payload.role !== expectedRole || msg.payload.refundRound !== expectedRound) {
+           return emitAbort('PROTOCOL_ERROR', 'Unexpected capsule params');
         }
-        if (msg.payload.refundRound !== expectedRound) {
-           return abort('PROTOCOL_ERROR', `Unexpected refund round: ${msg.payload.refundRound}`);
-        }
-        
-        // Verify Proof
-        const publicInput = {
-           sid: sid!,
-           role: expectedRole,
-           refundRound: expectedRound,
-           yShare: msg.payload.yShare, // We trust yShare is correct? 
-           // Technically we should valid yShare matches expected deterministic one too?
-           // Plan said: "yShare reference ... use deterministic mock"
-           // Let's enforce it to be strict.
-           ct: msg.payload.ct,
-        };
         
         const expectedYShare = mockYShare(sid!, expectedRole);
         if (msg.payload.yShare !== expectedYShare) {
-            return abort('PROTOCOL_ERROR', 'Invalid yShare commitment');
+            return emitAbort('PROTOCOL_ERROR', 'Invalid yShare commitment');
+        }
+        
+        // Strict CT Validation
+        const tlockInput = { sid: sid!, role: expectedRole, refundRound: expectedRound, yShare: expectedYShare };
+        const expectedCt = mockTlockEncrypt(tlockInput).ct;
+        
+        if (msg.payload.ct !== expectedCt) {
+            // NACK then Abort
+            const nack: CapsuleAckMessage = {
+                type: 'capsule_ack',
+                from: role,
+                seq: postSeq++,
+                sid: sid!,
+                payload: { role: expectedRole, ok: false, reason: 'Invalid Ciphertext' }
+            };
+            recordPost(nack);
+            state = 'ABORTED';
+            return [
+                { kind: 'NET_OUT', msg: nack },
+                { kind: 'ABORTED', code: 'PROTOCOL_ERROR', message: 'Invalid capsule ciphertext' }
+            ];
         }
 
-        const valid = mockVerifyCapsule(publicInput, msg.payload.proof);
+        const valid = mockVerifyCapsule({ ...tlockInput, ct: msg.payload.ct }, msg.payload.proof);
         
         if (!valid) {
-            // Send negative Ack then abort? or just abort.
-            // Plan: "emit NET_OUT capsule_ack {role, ok:false..} -> ABORT"
             const nack: CapsuleAckMessage = {
               type: 'capsule_ack',
               from: role,
-              seq: 2,
+              seq: postSeq++,
               sid: sid!,
               payload: { role: expectedRole, ok: false, reason: 'Invalid Proof' }
             };
-            // Return NACK then abort events
+            recordPost(nack);
             state = 'ABORTED';
             return [
                { kind: 'NET_OUT', msg: nack },
@@ -351,15 +410,15 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
             ];
         }
         
-        // Valid!
         capsuleReceived = true;
         const ack: CapsuleAckMessage = {
            type: 'capsule_ack',
            from: role,
-           seq: 2,
+           seq: postSeq++,
            sid: sid!,
            payload: { role: expectedRole, ok: true }
         };
+        recordPost(ack);
         
         const events: SessionEvent[] = [{ kind: 'NET_OUT', msg: ack }];
         events.push(...checkCapsulesVerified());
@@ -367,16 +426,11 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
       }
       
       if (msg.type === 'capsule_ack') {
-         if (msg.from === role) return [];
-         
-         // Ack for OUR offer
-         // Check role matches what WE sent
          const myTargetRole = role === 'alice' ? 'refund_mpc_Bob' : 'refund_mpc_Alice';
-         
-         if (msg.payload.role !== myTargetRole) return []; // Not relevant?
+         if (msg.payload.role !== myTargetRole) return []; 
          
          if (!msg.payload.ok) {
-            return abort('PROTOCOL_ERROR', `Peer rejected capsule: ${msg.payload.reason}`);
+            return emitAbort('PROTOCOL_ERROR', `Peer rejected capsule: ${msg.payload.reason}`);
          }
          
          capsuleAcked = true;
@@ -392,6 +446,12 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
     handleIncoming,
     getState: () => state,
     getSid: () => sid,
-    getTranscriptHash: () => handshake.getTranscriptHash(),
+    getTranscriptHash: () => {
+        // If locked/post-handshake, use full hash
+        if (state !== 'HANDSHAKE' && state !== 'WAIT_PEER') {
+            return getFullTranscriptHash();
+        }
+        return handshake.getTranscriptHash();
+    },
   };
 }
