@@ -214,14 +214,15 @@ Alice aborts with `Invalid adaptor sig` or similar validation error.
 | TX Template | ✅ Complete | EIP-1559 transaction builder |
 | Template Sync | ✅ Complete | Deterministic digest verification |
 | Adaptor Negotiation | ✅ Complete | Mock adaptor signature exchange |
-| Execution Phase | ❌ Not Started | Actual swap execution pending |
+| Execution Planned | ✅ Complete | EXECUTION_PLANNED state + autoBroadcast |
+| Execution Phase | 🔄 Partial | tx_B broadcast works, Alice confirmation pending |
 | Refund Phase | ❌ Not Started | Timelock-based refund pending |
 | Idempotency | ✅ Complete | Duplicate messages handled safely |
 | Transcript Stability | ✅ Complete | Hash unchanged under resend |
 
 ### Mock Components (to be replaced with real crypto)
 
-1. **`mockKeygen.ts`** - Deterministic Ethereum addresses (sha1) and commitments (sha256)
+1. **`mockKeygen.ts`** - Deterministic Ethereum addresses via viem (keccak256 → secp256k1)
 2. **`mockTlock.ts`** - Deterministic ciphertext/proof using `canonicalStringify`
 3. **`mockYShare`** - Deterministic Y-share commitments for capsule exchange
 

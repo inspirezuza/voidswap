@@ -115,7 +115,7 @@ describe('Funding Phase', () => {
 
         expect(aliceStart).toBeDefined();
         expect(bobStart).toBeDefined();
-        expect((aliceStart as any).mpcAliceAddr).toMatch(/^0x[0-9a-f]{40}$/);
+        expect((aliceStart as any).mpcAliceAddr).toMatch(/^0x[0-9a-fA-F]{40}$/);
     });
 
     it('should complete funding when both tx confirmed', () => {

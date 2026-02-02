@@ -62,7 +62,7 @@ export {
 } from './handshakeRuntime.js';
 
 // Keygen helpers
-export { mockKeygen, mockKeygenWithPriv, mockYShare, type MpcResultWithPriv } from './mockKeygen.js';
+export { mockKeygen, mockKeygenWithPriv, mockYShare, derivePrivKey, type MpcKeyPair, type MpcKeygenResult } from './mockKeygen.js';
 
 // Session runtime (Handshake + Keygen + Capsules)
 export {

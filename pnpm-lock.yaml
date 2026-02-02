@@ -58,9 +58,15 @@ importers:
 
   packages/protocol:
     dependencies:
+      '@voidswap/adaptor-mock':
+        specifier: workspace:*
+        version: link:../adaptor-mock
       '@voidswap/tx-template':
         specifier: workspace:*
         version: link:../tx-template
+      viem:
+        specifier: ^2.45.0
+        version: 2.45.0(typescript@5.9.3)(zod@3.25.76)
       zod:
         specifier: ^3.24.0
         version: 3.25.76

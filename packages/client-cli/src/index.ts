@@ -89,12 +89,15 @@ async function main() {
                   let to: string;
                   let value: bigint;
                   
+                  // Gas reserve: 21000 gas * 20 gwei = 420000 gwei = 0.00042 ETH, round up to 0.001 ETH
+                  const gasReserve = BigInt('1000000000000000'); // 0.001 ETH
+                  
                   if (args.role === 'alice') {
                       to = mpcAlice;
-                      value = BigInt(vA); 
+                      value = BigInt(vA) + gasReserve; 
                   } else {
                       to = mpcBob;
-                      value = BigInt(vB);
+                      value = BigInt(vB) + gasReserve;
                   }
                   
                   // Small Gas Reserve? The prompt said "vA + gasReserveWei". For now using exact amount as per prompt constraint "vA (alice)" but simpler to add slight overhead if needed.
@@ -313,8 +316,8 @@ async function main() {
                      const { mockKeygenWithPriv } = await import('@voidswap/protocol');
 
                      // Get Bob's mock private key
-                     const bobMpc = mockKeygenWithPriv(sid, 'bob');
-                     const account = privateKeyToAccount(bobMpc.privKey as `0x${string}`);
+                     const mpcKeys = mockKeygenWithPriv(sid);
+                     const account = privateKeyToAccount(mpcKeys.mpcBob.privKey);
 
                      const walletClient = createWalletClient({
                          account,
