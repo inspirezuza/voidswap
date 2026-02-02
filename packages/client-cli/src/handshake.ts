@@ -36,6 +36,7 @@ export interface SessionCallbacks {
   onAdaptorNegotiating: (sid: string, transcriptHash: string) => void;
   onAdaptorReady: (sid: string, transcriptHash: string, digestB: string, TB: string) => void;
   onExecutionPlanned: (sid: string, transcriptHash: string, flow: 'B', roleAction: string, txB: { unsigned: any; digest: string }, txA: { unsigned: any; digest: string }) => void;
+  onTxBHashReceived: (sid: string, transcriptHash: string, txBHash: string) => void;
   onLog: (message: string) => void;
 }
 
@@ -199,6 +200,9 @@ export class Session {
         case 'EXECUTION_PLANNED':
           this.callbacks.onExecutionPlanned(event.sid, event.transcriptHash, event.flow, event.roleAction, event.txB, event.txA);
           break;
+        case 'TXB_HASH_RECEIVED':
+          this.callbacks.onTxBHashReceived(event.sid, event.transcriptHash, event.txBHash);
+          break;
       } // switch
     } // for
   } // processEvents
@@ -243,6 +247,11 @@ export class Session {
 
   getMpcAddresses(): { mpcAlice: string; mpcBob: string } | null {
       return this.runtime.getMpcAddresses();
+  }
+
+  announceTxBHash(txHash: string) {
+      const events = this.runtime.announceTxBHash(txHash);
+      this.processEvents(events);
   }
 }
 

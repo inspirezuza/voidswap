@@ -9,7 +9,8 @@ import {
     type FundingTxPayload,
     type MpcResult,
     type NonceReportPayload,
-    type FeeParamsPayload
+    type FeeParamsPayload,
+    type TxBBroadcastMessage
 } from './messages.js';
 import { createHandshakeRuntime, type RuntimeEvent } from './handshakeRuntime.js';
 import { canonicalStringify } from './canonical.js';
@@ -34,6 +35,7 @@ export type SessionEvent =
   | { kind: 'ADAPTOR_NEGOTIATING'; sid: string; transcriptHash: string }
   | { kind: 'ADAPTOR_READY'; sid: string; transcriptHash: string; digestA: string; digestB: string; TA: string; TB: string }
   | { kind: 'EXECUTION_PLANNED'; sid: string; transcriptHash: string; flow: 'B'; roleAction: 'broadcast_tx_B' | 'wait_tx_B_confirm_then_extract_then_broadcast_tx_A'; txB: { unsigned: any; digest: string }; txA: { unsigned: any; digest: string } }
+  | { kind: 'TXB_HASH_RECEIVED'; sid: string; transcriptHash: string; txBHash: string }
   | { kind: 'ABORTED'; code: string; message: string };
 
 export type SessionState = 
@@ -67,6 +69,7 @@ export interface SessionRuntime {
   getSid(): string | null;
   getTranscriptHash(): string;
   getMpcAddresses(): { mpcAlice: string; mpcBob: string } | null;
+  announceTxBHash(txHash: string): SessionEvent[];
 }
 
 export interface SessionRuntimeOptions {
@@ -123,6 +126,10 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
   type AdaptorLegState = { T?: string; adaptorSig?: string; acked?: boolean };
   const adaptorLegs: { A: AdaptorLegState; B: AdaptorLegState } = { A: {}, B: {} };
   let bobLocalSecret: string | undefined; // Bob's shared secret for both legs
+  
+  // Execution State
+  let peerTxBHash: string | undefined;
+
 
 
   function emitAbort(code: string, message: string): SessionEvent[] {
@@ -1171,6 +1178,31 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
         }
     }
 
+    // Execution Logic
+    if (state === 'EXECUTION_PLANNED') {
+        if (msg.type === 'txB_broadcast') {
+            if (role !== 'bob') return emitAbort('PROTOCOL_ERROR', 'Only Bob receives txB_broadcast');
+            
+            const p = msg.payload;
+            
+            if (peerTxBHash && peerTxBHash !== p.txHash) {
+                return emitAbort('PROTOCOL_ERROR', 'Conflicting txB hash');
+            }
+            
+            if (peerTxBHash) return []; // Idempotent
+            
+            peerTxBHash = p.txHash;
+            recordPost(msg);
+            
+            return [{
+                kind: 'TXB_HASH_RECEIVED',
+                sid: sid!,
+                transcriptHash: getFullTranscriptHash(),
+                txBHash: p.txHash
+            }];
+        }
+    }
+
     return [];
   }
 
@@ -1285,6 +1317,26 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
       };
   }
 
+  function announceTxBHash(txHash: string): SessionEvent[] {
+      if (state !== 'EXECUTION_PLANNED') {
+          return emitAbort('PROTOCOL_ERROR', 'Cannot announce txB hash outside EXECUTION_PLANNED state');
+      }
+      if (role !== 'alice') {
+          return emitAbort('PROTOCOL_ERROR', 'Only Alice can announce txB hash');
+      }
+      
+      const msg: TxBBroadcastMessage = {
+          type: 'txB_broadcast',
+          from: role,
+          seq: postSeq++,
+          sid: sid!,
+          payload: { txHash }
+      };
+      
+      recordPost(msg);
+      return [{ kind: 'NET_OUT', msg }];
+  }
+
   return {
     startHandshake,
     handleIncoming,
@@ -1301,6 +1353,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
         return handshake.getTranscriptHash();
     },
     getMpcAddresses,
+    announceTxBHash,
   };
 }
 

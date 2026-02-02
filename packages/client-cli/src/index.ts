@@ -370,10 +370,25 @@ async function main() {
 
                      log(`Broadcasted tx_B: ${txHash}`);
                      log('='.repeat(60));
+                     
+                     // Announce to peer
+                     session.announceTxBHash(txHash);
+                     log(`Announced tx_B hash to peer.`);
+                     log('='.repeat(60));
                  } catch (e: any) {
                      log(`Auto-broadcast FAILED: ${e.message}`);
                  }
              }
+        },
+        onTxBHashReceived: (sid: string, transcriptHash: string, txBHash: string) => {
+             log('');
+             log('='.repeat(60));
+             log(`Received tx_B hash: ${txBHash}`);
+             log(`(Will start watching for confirmation in next step)`);
+             if (args.verbose) {
+                 log(`Transcript Hash: ${transcriptHash}`);
+             }
+             log('='.repeat(60));
         },
         onCapsulesVerified: (sid: string, transcriptHash: string) => {
          log('');
