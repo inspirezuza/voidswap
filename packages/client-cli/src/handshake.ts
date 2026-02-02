@@ -94,17 +94,16 @@ export class Session {
                  };
             }
             
-            // Tamper adaptor_resp
+            // Tamper adaptor_resp by truncating signature (causes length validation failure)
             if (tamperAdaptor && msg.type === 'adaptor_resp') {
-                 // Mutate adaptorSigB
                  const original = msg.payload.adaptorSigB as string;
-                 const flipped = original[2] === '0' ? '1' : '0';
-                 const mutated = '0x' + flipped + original.slice(3);
+                 // Truncate by 2 hex chars (1 byte) to trigger length check in presignFinish
+                 const truncated = original.slice(0, -2);
                  return {
                      ...msg,
                      payload: {
                          ...msg.payload,
-                         adaptorSigB: mutated
+                         adaptorSigB: truncated
                      }
                  };
             }
