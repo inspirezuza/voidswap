@@ -10,7 +10,8 @@ import {
     type MpcResult,
     type NonceReportPayload,
     type FeeParamsPayload,
-    type TxBBroadcastMessage
+    type TxBBroadcastMessage,
+    type TxABroadcastMessage
 } from './messages.js';
 import { createHandshakeRuntime, type RuntimeEvent } from './handshakeRuntime.js';
 import { canonicalStringify } from './canonical.js';
@@ -36,6 +37,7 @@ export type SessionEvent =
   | { kind: 'ADAPTOR_READY'; sid: string; transcriptHash: string; digestA: string; digestB: string; TA: string; TB: string }
   | { kind: 'EXECUTION_PLANNED'; sid: string; transcriptHash: string; flow: 'B'; roleAction: 'broadcast_tx_B' | 'wait_tx_B_confirm_then_extract_then_broadcast_tx_A'; txB: { unsigned: any; digest: string }; txA: { unsigned: any; digest: string } }
   | { kind: 'TXB_HASH_RECEIVED'; sid: string; transcriptHash: string; txBHash: string }
+  | { kind: 'TXA_HASH_RECEIVED'; sid: string; transcriptHash: string; txAHash: string }
   | { kind: 'ABORTED'; code: string; message: string };
 
 export type SessionState = 
@@ -70,6 +72,7 @@ export interface SessionRuntime {
   getTranscriptHash(): string;
   getMpcAddresses(): { mpcAlice: string; mpcBob: string } | null;
   announceTxBHash(txHash: string): SessionEvent[];
+  announceTxAHash(txHash: string): SessionEvent[];
 }
 
 export interface SessionRuntimeOptions {
@@ -129,6 +132,8 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
   
   // Execution State
   let peerTxBHash: string | undefined;
+  let peerTxAHash: string | undefined;
+
 
 
 
@@ -1201,7 +1206,30 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
                 txBHash: p.txHash
             }];
         }
+        
+        if (msg.type === 'txA_broadcast') {
+            if (role !== 'alice') return emitAbort('PROTOCOL_ERROR', 'Only Alice receives txA_broadcast');
+            
+            const p = msg.payload;
+            
+            if (peerTxAHash && peerTxAHash !== p.txHash) {
+                return emitAbort('PROTOCOL_ERROR', 'Conflicting txA hash');
+            }
+            
+            if (peerTxAHash) return []; // Idempotent
+            
+            peerTxAHash = p.txHash;
+            recordPost(msg);
+            
+            return [{
+                kind: 'TXA_HASH_RECEIVED',
+                sid: sid!,
+                transcriptHash: getFullTranscriptHash(),
+                txAHash: p.txHash
+            }];
+        }
     }
+
 
     return [];
   }
@@ -1337,6 +1365,26 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
       return [{ kind: 'NET_OUT', msg }];
   }
 
+  function announceTxAHash(txHash: string): SessionEvent[] {
+      if (state !== 'EXECUTION_PLANNED') {
+          return emitAbort('PROTOCOL_ERROR', 'Cannot announce txA hash outside EXECUTION_PLANNED state');
+      }
+      if (role !== 'bob') {
+          return emitAbort('PROTOCOL_ERROR', 'Only Bob can announce txA hash');
+      }
+      
+      const msg: TxABroadcastMessage = {
+          type: 'txA_broadcast',
+          from: role,
+          seq: postSeq++,
+          sid: sid!,
+          payload: { txHash }
+      };
+      
+      recordPost(msg);
+      return [{ kind: 'NET_OUT', msg }];
+  }
+
   return {
     startHandshake,
     handleIncoming,
@@ -1354,6 +1402,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
     },
     getMpcAddresses,
     announceTxBHash,
+    announceTxAHash,
   };
 }
 

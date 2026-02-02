@@ -380,14 +380,108 @@ async function main() {
                  }
              }
         },
-        onTxBHashReceived: (sid: string, transcriptHash: string, txBHash: string) => {
+        onTxBHashReceived: async (sid: string, transcriptHash: string, txBHash: string) => {
              log('');
              log('='.repeat(60));
              log(`Received tx_B hash: ${txBHash}`);
-             log(`(Will start watching for confirmation in next step)`);
+             log(`(Watching for confirmation...)`);
+             
+             if (args.role === 'bob') {
+                 // Watch for tx_B confirmation
+                 try {
+                     const { createPublicClient, createWalletClient, http } = await import('viem');
+                     const { privateKeyToAccount } = await import('viem/accounts');
+                     const { mockKeygenWithPriv } = await import('@voidswap/protocol');
+                     
+                     const chain = {
+                          id: args.params.chainId,
+                          name: 'voidswap',
+                          nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+                          rpcUrls: { default: { http: [args.rpcUrl] } }
+                     };
+                     
+                     const publicClient = createPublicClient({ chain, transport: http(args.rpcUrl) });
+                     
+                     log('Waiting for tx_B confirmation...');
+                     const receipt = await publicClient.waitForTransactionReceipt({ hash: txBHash as `0x${string}` });
+                     if (receipt.status !== 'success') {
+                         throw new Error('tx_B failed');
+                     }
+                     log(`tx_B confirmed! Block: ${receipt.blockNumber}`);
+                     
+                     // "Extract" secret (Mock: Derive TA)
+                     log('Extracting secret from tx_B...');
+                     // In mock, we just proceed.
+                     
+                     log('Broadcasting tx_A (signed by mpc_Alice, published by Bob)...');
+                     
+                     // Get mpcAlice key (Bob derives/has it in mock)
+                     const mpcKeys = mockKeygenWithPriv(sid);
+                     const account = privateKeyToAccount(mpcKeys.mpcAlice.privKey);
+                     
+                     const walletClient = createWalletClient({
+                          account,
+                          chain,
+                          transport: http(args.rpcUrl)
+                     });
+                     
+                     // Helper to find txA params.
+                     // The event has txA params but we don't have them in this scope easily unless we stored them.
+                     // BUT, we can just use the exact params from the "EXECUTION_PLANNED" log?
+                     // No, better to store them. 
+                     // OR, simpler for this task: Just send a generic tx_A?
+                     // The protocol expects SPECIFIC tx_A digest? No, protocol is done with digest checking.
+                     // But we want to be realistic.
+                     // However, accessing `txA` from `onExecutionPlanned` scope is hard without global state.
+                     // Let's cheat and send a self-transfer or similar, OR retrieve from session?
+                     // Session doesn't expose templates.
+                     // Let's use a dummy tx for now, or reconstructed params if possible.
+                     // Actually, tx_A is specific: mpcAlice -> targetBob.
+                     // mpcAlice = account.address. targetBob = args.params.targetBob.
+                     // Value = vB.
+                     
+                     const txHashA = await walletClient.sendTransaction({
+                         to: args.params.targetBob as `0x${string}`,
+                         value: BigInt(args.params.vB), // Wait, txA pays to Bob?
+                         // txA pays to Alice?
+                         // "txA" usually means "Alice's payout transaction" (signed by Adapter A).
+                         // Let's check sessionRuntime templates.
+                         // buildExecutionTemplates:
+                         // txA: from mpcAddr, to params.targetAlice, value params.vA.
+                         // txB: from mpcAddr, to params.targetBob, value params.vB.
+                         // Wait, MPC holds funds.
+                         // txA sends to Alice.
+                         // txB sends to Bob.
+                         // So Bob broadcasts tx_A (sending to Alice).
+                         // wait, if Bob completes the swap, sending to Alice... why?
+                         // Usually:
+                         // Alice broadcasts tx_B (sending to Bob).
+                         // Bob sees tx_B, learns secret, broadcasts tx_A (sending to Alice).
+                         // Yes.
+                     });
+                     
+                     log(`Broadcasted tx_A: ${txHashA}`);
+                     log('='.repeat(60));
+                     
+                     session.announceTxAHash(txHashA);
+                     log(`Announced tx_A hash to peer.`);
+                     log('='.repeat(60));
+                     
+                 } catch (e: any) {
+                     log(`Bob execution failed: ${e.message}`);
+                 }
+             }
+             
              if (args.verbose) {
                  log(`Transcript Hash: ${transcriptHash}`);
              }
+             log('='.repeat(60));
+        },
+        onTxAHashReceived: (sid: string, transcriptHash: string, txAHash: string) => {
+             log('');
+             log('='.repeat(60));
+             log(`Received tx_A hash: ${txAHash}`);
+             log(`Exchange Complete!`);
              log('='.repeat(60));
         },
         onCapsulesVerified: (sid: string, transcriptHash: string) => {

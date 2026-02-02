@@ -431,6 +431,22 @@ export const TxBBroadcastMessageSchema = BaseMessageSchema.extend({
 export type TxBBroadcastMessage = z.infer<typeof TxBBroadcastMessageSchema>;
 
 // ============================================
+// TxA Broadcast Message (Bob -> Alice)
+// ============================================
+
+export const TxABroadcastPayloadSchema = z.object({
+  txHash: Hex32Schema,
+});
+
+export const TxABroadcastMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("txA_broadcast"),
+  sid: z.string(),
+  payload: TxABroadcastPayloadSchema,
+});
+
+export type TxABroadcastMessage = z.infer<typeof TxABroadcastMessageSchema>;
+
+// ============================================
 // Union Message Type
 // ============================================
 
@@ -450,6 +466,7 @@ export const MessageSchema = z.discriminatedUnion('type', [
   AdaptorRespMessageSchema,
   AdaptorAckMessageSchema,
   TxBBroadcastMessageSchema,
+  TxABroadcastMessageSchema,
   AbortMessageSchema,
   ErrorMessageSchema,
 ]);
