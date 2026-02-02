@@ -61,14 +61,15 @@ anvil
 # Terminal 2: Start relay
 pnpm -C packages/relay dev
 
-# Terminal 3: Run Alice with auto-fund
-pnpm -C packages/client-cli dev -- --role alice --room test --autoFund --rpc http://127.0.0.1:8545 --fundingKey 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+# Terminal 3: Run Alice with auto-fund and auto-broadcast
+pnpm -C packages/client-cli dev -- --role alice --room test --autoFund --autoBroadcast --rpc http://127.0.0.1:8545 --fundingKey 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
 # Terminal 4: Run Bob with auto-fund
 pnpm -C packages/client-cli dev -- --role bob --room test --autoFund --rpc http://127.0.0.1:8545 --fundingKey 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
 ```
 
-Both clients should reach `EXEC_READY` state.
+
+Both clients should reach `EXECUTION_PLANNED`. Alice will automatically broadcast `tx_B` (signed by `mpc_Bob` key). Bob will wait for `tx_B` confirmation.
 
 ## Security Features
 
@@ -141,6 +142,11 @@ Both clients should reach `EXEC_READY` state.
 │  Alice ──adaptor_ack────► Bob                                   │
 │                                                                 │
 │  [ADAPTOR_READY: Signatures exchanged & verified]               │
+├─────────────────────────────────────────────────────────────────┤
+│                      EXECUTION PHASE                            │
+├─────────────────────────────────────────────────────────────────┤
+│  [EXECUTION_PLANNED: Alice broadcasts tx_B, Bob waits]          │
+│  Alice ──broadcast_tx_B──► Mempool                              │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -214,8 +220,8 @@ Alice aborts with `Invalid adaptor sig` or similar validation error.
 | TX Template | ✅ Complete | EIP-1559 transaction builder |
 | Template Sync | ✅ Complete | Deterministic digest verification |
 | Adaptor Negotiation | ✅ Complete | Mock adaptor signature exchange |
-| Execution Planned | ✅ Complete | EXECUTION_PLANNED state + autoBroadcast |
-| Execution Phase | 🔄 Partial | tx_B broadcast works, Alice confirmation pending |
+| Execution Planned | ✅ Complete | EXECUTION_PLANNED state + Alice-first plan |
+| Execution Phase | 🔄 Partial | Alice broadcasts tx_B, Bob waits (extract pending) |
 | Refund Phase | ❌ Not Started | Timelock-based refund pending |
 | Idempotency | ✅ Complete | Duplicate messages handled safely |
 | Transcript Stability | ✅ Complete | Hash unchanged under resend |

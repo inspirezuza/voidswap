@@ -228,7 +228,7 @@ describe('Adaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)', () => {
         
         // Check Alice's roleAction
         const alicePlan = lastAliceEvents.find(e => e.kind === 'EXECUTION_PLANNED') as any;
-        expect(alicePlan.roleAction).toBe('wait_for_tx_B_confirm');
+        expect(alicePlan.roleAction).toBe('broadcast_tx_B');
         expect(alicePlan.flow).toBe('B');
         expect(alicePlan.txB).toBeDefined();
         expect(alicePlan.txA).toBeDefined();
@@ -245,7 +245,7 @@ describe('Adaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)', () => {
         
         // Check Bob's roleAction
         const bobPlan = lastBobEvents.find(e => e.kind === 'EXECUTION_PLANNED') as any;
-        expect(bobPlan.roleAction).toBe('broadcast_tx_B');
+        expect(bobPlan.roleAction).toBe('wait_tx_B_confirm_then_extract_then_broadcast_tx_A');
         expect(bobPlan.flow).toBe('B');
         
         // Verify transcript hashes (should match if implemented correctly)

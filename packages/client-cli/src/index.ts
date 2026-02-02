@@ -330,18 +330,19 @@ async function main() {
              }
              log('='.repeat(60));
 
-             // Auto-broadcast for Bob
-             if (args.role === 'bob' && args.autoBroadcast && roleAction === 'broadcast_tx_B') {
+             // Auto-broadcast for Alice (broadcasting tx_B signed by mpcBob)
+             if (args.role === 'alice' && args.autoBroadcast && roleAction === 'broadcast_tx_B') {
                  log('');
-                 log('Auto-broadcasting tx_B...');
+                 log('Auto-broadcasting tx_B (signed by mpc_Bob key, published by Alice client)...');
                  try {
                      // Import dynamically to avoid circular deps
                      const { createWalletClient, http } = await import('viem');
                      const { privateKeyToAccount } = await import('viem/accounts');
                      const { mockKeygenWithPriv } = await import('@voidswap/protocol');
 
-                     // Get Bob's mock private key
+                     // Get Bob's mock private key (Alice can derive this in mock mode)
                      const mpcKeys = mockKeygenWithPriv(sid);
+                     // tx_B is from mpc_Bob, so we MUST sign with mpc_Bob's key
                      const account = privateKeyToAccount(mpcKeys.mpcBob.privKey);
 
                      // Create dynamic chain object matching protocol chainId

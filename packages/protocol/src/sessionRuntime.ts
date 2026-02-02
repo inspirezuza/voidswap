@@ -33,7 +33,7 @@ export type SessionEvent =
   | { kind: 'EXEC_TEMPLATES_READY'; sid: string; transcriptHash: string; digestA: string; digestB: string }
   | { kind: 'ADAPTOR_NEGOTIATING'; sid: string; transcriptHash: string }
   | { kind: 'ADAPTOR_READY'; sid: string; transcriptHash: string; digestA: string; digestB: string; TA: string; TB: string }
-  | { kind: 'EXECUTION_PLANNED'; sid: string; transcriptHash: string; flow: 'B'; roleAction: 'broadcast_tx_B' | 'wait_for_tx_B_confirm'; txB: { unsigned: any; digest: string }; txA: { unsigned: any; digest: string } }
+  | { kind: 'EXECUTION_PLANNED'; sid: string; transcriptHash: string; flow: 'B'; roleAction: 'broadcast_tx_B' | 'wait_tx_B_confirm_then_extract_then_broadcast_tx_A'; txB: { unsigned: any; digest: string }; txA: { unsigned: any; digest: string } }
   | { kind: 'ABORTED'; code: string; message: string };
 
 export type SessionState = 
@@ -1113,7 +1113,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
                     sid: sid!,
                     transcriptHash: getFullTranscriptHash(),
                     flow: 'B',
-                    roleAction: 'wait_for_tx_B_confirm', // Alice waits for Bob's tx_B
+                    roleAction: 'broadcast_tx_B', // Alice broadcasts tx_B (using mpcBob key in mock setup)
                     txB: { unsigned: execTemplates!.txB, digest: execTemplates!.digestB },
                     txA: { unsigned: execTemplates!.txA, digest: execTemplates!.digestA }
                 });
@@ -1161,7 +1161,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
                     sid: sid!,
                     transcriptHash: getFullTranscriptHash(),
                     flow: 'B',
-                    roleAction: 'broadcast_tx_B', // Bob broadcasts tx_B
+                    roleAction: 'wait_tx_B_confirm_then_extract_then_broadcast_tx_A', // Bob waits for Alice to broadcast tx_B
                     txB: { unsigned: execTemplates!.txB, digest: execTemplates!.digestB },
                     txA: { unsigned: execTemplates!.txA, digest: execTemplates!.digestA }
                 });
