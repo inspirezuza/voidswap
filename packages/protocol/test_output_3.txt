@@ -1,0 +1,62 @@
+
+> @voidswap/protocol@1.0.0 test D:\coding\finalproject\packages\protocol
+> vitest run "test/adaptorNegotiation.test.ts"
+
+
+[1m[46m RUN [49m[22m [36mv3.2.4 [39m[90mD:/coding/finalproject/packages/protocol[39m
+
+[90mstdout[2m | test/adaptorNegotiation.test.ts[2m > [22m[2mAdaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)[2m > [22m[2mshould complete adaptor negotiation successfully
+[22m[39mAdaptorStart Payload: {
+  "digestB": "0xa939851b13437a44bf281cfe40f594b94c4729e404f210393ccdeccb828632a7",
+  "TB": "0x24df9eb9a784c2bf694cda64a2a9b95c3c4208423e05f09250078fd369c39cfd",
+  "mode": "mock"
+}
+Bob Events: [
+  {
+    "kind": "NET_OUT",
+    "msg": {
+      "type": "adaptor_resp",
+      "from": "bob",
+      "seq": 108,
+      "sid": "eac0297555cb91962d0dd1039d05c127ca91cf54f052c933c47f7d1f3288b0c9",
+      "payload": {
+        "digestB": "0xa939851b13437a44bf281cfe40f594b94c4729e404f210393ccdeccb828632a7",
+        "TB": "0x24df9eb9a784c2bf694cda64a2a9b95c3c4208423e05f09250078fd369c39cfd",
+        "adaptorSigB": "0xd8fdde7807ca4143056e6bdfd39f4a0a663754c8cec4b30fa8fd6bd02fd91b883d1937d59ee9f7f7a0af94a50845ee0d76fcc9afd67536a558312d318cb3a916",
+        "mode": "mock"
+      }
+    }
+  }
+]
+Bob State: ADAPTOR_NEGOTIATING
+
+ [31m❯[39m test/adaptorNegotiation.test.ts [2m([22m[2m2 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[32m 24[2mms[22m[39m
+   [32m✓[39m Adaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)[2m > [22mshould complete adaptor negotiation successfully[32m 13[2mms[22m[39m
+[31m   [31m×[31m Adaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)[2m > [22mshould abort if Bob sends invalid signature (Tamper)[39m[32m 9[2mms[22m[39m
+[31m     → expected 'ADAPTOR_READY' to be 'ABORTED' // Object.is equality[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m test/adaptorNegotiation.test.ts[2m > [22mAdaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)[2m > [22mshould abort if Bob sends invalid signature (Tamper)
+[31m[1mAssertionError[22m: expected 'ADAPTOR_READY' to be 'ABORTED' // Object.is equality[39m
+
+Expected: [32m"A[7mBORTED[27m"[39m
+Received: [31m"A[7mDAPTOR_READY[27m"[39m
+
+[36m [2m❯[22m test/adaptorNegotiation.test.ts:[2m248:34[22m[39m
+    [90m246| [39m        [35mconst[39m aliceEvents [33m=[39m alice[33m.[39m[34mhandleIncoming[39m(bobResp[33m![39m)[33m;[39m
+    [90m247| [39m        
+    [90m248| [39m        [34mexpect[39m(alice[33m.[39m[34mgetState[39m())[33m.[39m[34mtoBe[39m([32m'ABORTED'[39m)[33m;[39m
+    [90m   | [39m                                 [31m^[39m
+    [90m249| [39m        [35mconst[39m abortEvent [33m=[39m aliceEvents[33m.[39m[34mfind[39m(e [33m=>[39m e[33m.[39mkind [33m===[39m [32m'ABORTED'[39m)[33m;[39m
+    [90m250| [39m        [34mexpect[39m(abortEvent)[33m.[39m[34mtoBeDefined[39m()[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m1 passed[39m[22m[90m (2)[39m
+[2m   Start at [22m 05:44:37
+[2m   Duration [22m 860ms[2m (transform 151ms, setup 0ms, collect 376ms, tests 24ms, environment 0ms, prepare 159ms)[22m
+
+ ELIFECYCLE  Test failed. See above for more details.

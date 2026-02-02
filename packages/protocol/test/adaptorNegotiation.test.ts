@@ -1,7 +1,7 @@
 /**
- * Template Sync Tests (EXEC_TEMPLATES_SYNC -> EXEC_TEMPLATES_READY)
+ * Adaptor Negotiation Tests (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)
  * 
- * Tests for the tx_template_commit/ack message exchange.
+ * Tests for the adaptor_start / adaptor_resp / adaptor_ack message exchange.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -36,18 +36,30 @@ function getNetOutMsgs(events: SessionEvent[]): Message[] {
     .map(e => (e as any).msg);
 }
 
-// Helper to fast-forward to EXEC_TEMPLATES_SYNC
-function setupTemplateSync(): { alice: SessionRuntime; bob: SessionRuntime; aliceCommit: Message; bobCommit: Message } {
+// Helper to fast-forward to ADAPTOR_NEGOTIATING
+function setupAdaptor(tamperAdaptor = false): { alice: SessionRuntime; bob: SessionRuntime; adaptorStartMsg: Message } {
     const alice = createSessionRuntime({ role: 'alice', params: sampleParams, localNonce: aliceNonce });
-    const bob = createSessionRuntime({ role: 'bob', params: sampleParams, localNonce: bobNonce });
+    const bob = createSessionRuntime({ 
+        role: 'bob', 
+        params: sampleParams, 
+        localNonce: bobNonce,
+        outboundMutator: tamperAdaptor ? (msg) => {
+             if (msg.type === 'adaptor_resp') {
+                 // Tamper signature by truncation to trigger length check failure in AdaptorMock
+                 const original = msg.payload.adaptorSigB as string;
+                 return { ...msg, payload: { ...msg.payload, adaptorSigB: original.slice(0, -2) } };
+             }
+             return msg;
+        } : undefined
+    });
 
     // Handshake
-    const aliceStart = alice.startHandshake();
-    const bobStart = bob.startHandshake();
+    const aliceHandshake = alice.startHandshake();
+    const bobHandshake = bob.startHandshake();
 
     // Exchange Hellos
-    const aliceHelloEvents = alice.handleIncoming(getNetOutMsgs(bobStart)[0]);
-    const bobHelloEvents = bob.handleIncoming(getNetOutMsgs(aliceStart)[0]);
+    const aliceHelloEvents = alice.handleIncoming(getNetOutMsgs(bobHandshake)[0]);
+    const bobHelloEvents = bob.handleIncoming(getNetOutMsgs(aliceHandshake)[0]);
 
     // Exchange Acks
     const aliceAckEvents = alice.handleIncoming(getNetOutMsgs(bobHelloEvents)[0]);
@@ -76,13 +88,8 @@ function setupTemplateSync(): { alice: SessionRuntime; bob: SessionRuntime; alic
     alice.handleIncoming(bobAck!);
     bob.handleIncoming(aliceAck!);
 
-    // Now in FUNDING state
-    expect(alice.getState()).toBe('FUNDING');
-    expect(bob.getState()).toBe('FUNDING');
-
     // Emit and exchange funding transactions
     const mpcAddrs = alice.getMpcAddresses()!;
-    
     const aliceFundingEvents = alice.emitFundingTx({
         txHash: '0x' + '1'.repeat(64),
         fromAddress: sampleParams.targetAlice,
@@ -110,10 +117,6 @@ function setupTemplateSync(): { alice: SessionRuntime; bob: SessionRuntime; alic
     bob.notifyFundingConfirmed('mpc_Alice');
     bob.notifyFundingConfirmed('mpc_Bob');
 
-    // Now should be EXEC_PREP
-    expect(alice.getState()).toBe('EXEC_PREP');
-    expect(bob.getState()).toBe('EXEC_PREP');
-
     // Set nonces and exchange
     const nonceReport: NonceReportPayload = {
         mpcAliceNonce: '0',
@@ -125,7 +128,6 @@ function setupTemplateSync(): { alice: SessionRuntime; bob: SessionRuntime; alic
     const aliceNonceEvents = alice.setLocalNonceReport(nonceReport);
     const bobNonceEvents = bob.setLocalNonceReport(nonceReport);
 
-    // Exchange nonce reports
     for (const msg of getNetOutMsgs(aliceNonceEvents)) {
         bob.handleIncoming(msg);
     }
@@ -150,7 +152,6 @@ function setupTemplateSync(): { alice: SessionRuntime; bob: SessionRuntime; alic
         bobFeeAckEvents.push(...bob.handleIncoming(msg));
     }
     
-    // Capture Bob's commit message (emitted when transitioning to EXEC_TEMPLATES_SYNC)
     const bobCommit = getNetOutMsgs(bobFeeAckEvents).find(m => m.type === 'tx_template_commit');
     
     // Alice receives Bob's fee_params_ack, triggers her transition to EXEC_TEMPLATES_SYNC
@@ -161,79 +162,87 @@ function setupTemplateSync(): { alice: SessionRuntime; bob: SessionRuntime; alic
         }
     }
     
-    // Capture Alice's commit message
     const aliceCommit = getNetOutMsgs(aliceReadyEvents).find(m => m.type === 'tx_template_commit');
 
-    // Now both should be in EXEC_TEMPLATES_SYNC
-    expect(alice.getState()).toBe('EXEC_TEMPLATES_SYNC');
-    expect(bob.getState()).toBe('EXEC_TEMPLATES_SYNC');
+    // Exchange Commits (EXEC_TEMPLATES_SYNC)
+    const aliceAckTxEvents = alice.handleIncoming(bobCommit!);
+    const bobAckTxEvents = bob.handleIncoming(aliceCommit!);
 
-    return { alice, bob, aliceCommit: aliceCommit!, bobCommit: bobCommit! };
+    const aliceTermAck = getNetOutMsgs(aliceAckTxEvents).find(m => m.type === 'tx_template_ack');
+    const bobTermAck = getNetOutMsgs(bobAckTxEvents).find(m => m.type === 'tx_template_ack');
+    
+    // Finalize Template Sync -> Transitions to ADAPTOR_NEGOTIATING
+    // Alice receives Bob's Ack
+    let aliceFinalEvents = alice.handleIncoming(bobTermAck!);
+    
+    // Bob receives Alice's Ack
+    let bobFinalEvents = bob.handleIncoming(aliceTermAck!);
+
+    // Alice should have emitted 'ADAPTOR_NEGOTIATING' and 'adaptor_start'
+    const adaptorStartMsg = getNetOutMsgs(aliceFinalEvents).find(m => m.type === 'adaptor_start');
+    
+    if (!adaptorStartMsg) {
+        throw new Error('Alice did not emit adaptor_start');
+    }
+    
+    // Verify States
+    expect(alice.getState()).toBe('ADAPTOR_NEGOTIATING');
+    expect(bob.getState()).toBe('ADAPTOR_NEGOTIATING'); // Bob transitions when he receives Ack from Alice
+
+    return { alice, bob, adaptorStartMsg };
 }
 
-describe('Template Sync (EXEC_TEMPLATES_SYNC)', () => {
-    it('should reach EXEC_TEMPLATES_READY after exchanging commit and ack', () => {
-        const { alice, bob, aliceCommit, bobCommit } = setupTemplateSync();
-
-        // Exchange commits
-        // Alice receives Bob's commit -> sends ack
-        const aliceAckEvents = alice.handleIncoming(bobCommit);
-        expect(aliceAckEvents.some(e => e.kind === 'NET_OUT' && (e.msg as any).type === 'tx_template_ack')).toBe(true);
-
-        // Bob receives Alice's commit -> sends ack
-        const bobAckEvents = bob.handleIncoming(aliceCommit);
-        expect(bobAckEvents.some(e => e.kind === 'NET_OUT' && (e.msg as any).type === 'tx_template_ack')).toBe(true);
-
-        // Get the ack messages
-        const aliceAck = getNetOutMsgs(aliceAckEvents).find(m => m.type === 'tx_template_ack');
-        const bobAck = getNetOutMsgs(bobAckEvents).find(m => m.type === 'tx_template_ack');
-
-        // Bob receives Alice's ack -> should transition to EXEC_TEMPLATES_READY
-        const bobReadyEvents = bob.handleIncoming(aliceAck!);
+describe('Adaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)', () => {
+    
+    it('should complete adaptor negotiation successfully', () => {
+        const { alice, bob, adaptorStartMsg } = setupAdaptor(false);
         
-        // Alice receives Bob's ack -> should transition to EXEC_TEMPLATES_READY
-        const aliceReadyEvents = alice.handleIncoming(bobAck!);
-
-        // Both should be ADAPTOR_NEGOTIATING (auto-transition from EXEC_TEMPLATES_READY)
-        expect(alice.getState()).toBe('ADAPTOR_NEGOTIATING');
-        expect(bob.getState()).toBe('ADAPTOR_NEGOTIATING');
-
-        // Verify EXEC_TEMPLATES_READY events were emitted before transition
-        expect(aliceReadyEvents.some(e => e.kind === 'EXEC_TEMPLATES_READY')).toBe(true);
-        expect(bobReadyEvents.some(e => e.kind === 'EXEC_TEMPLATES_READY')).toBe(true);
-
-        // Verify transcript hashes match
-        // NOTE: Alice auto-transitions to ADAPTOR_NEGOTIATING and emits adaptor_start, 
-        // while Bob waits. Thus transcripts diverge by one message until Bob receives it.
-        // We skip this check here; adaptorNegotiation.test.ts verifies the full sync.
-        // expect(alice.getTranscriptHash()).toBe(bob.getTranscriptHash());
+        // Bob receives adaptor_start -> sends adaptor_resp
+        const bobEvents = bob.handleIncoming(adaptorStartMsg);
+        const bobResp = getNetOutMsgs(bobEvents).find(m => m.type === 'adaptor_resp');
+        
+        expect(bobResp).toBeDefined();
+        expect(bob.getState()).toBe('ADAPTOR_NEGOTIATING'); // Bob waits for ack
+        
+        // Alice receives adaptor_resp -> sends adaptor_ack
+        const aliceEvents = alice.handleIncoming(bobResp!);
+        const aliceAck = getNetOutMsgs(aliceEvents).find(m => m.type === 'adaptor_ack');
+        
+        expect(aliceAck).toBeDefined();
+        
+        // Alice should emit ADAPTOR_READY
+        expect(aliceEvents.some(e => e.kind === 'ADAPTOR_READY')).toBe(true);
+        expect(alice.getState()).toBe('ADAPTOR_READY');
+        
+        // Bob receives adaptor_ack -> emits ADAPTOR_READY
+        const bobFinalEvents = bob.handleIncoming(aliceAck!);
+        expect(bobFinalEvents.some(e => e.kind === 'ADAPTOR_READY')).toBe(true);
+        expect(bob.getState()).toBe('ADAPTOR_READY');
+        
+        // Verify transcript hashes (should match if implemented correctly)
+        // Alice includes adaptor_ack in transcript when sending
+        // Bob includes adaptor_ack when receiving
+        expect(alice.getTranscriptHash()).toBe(bob.getTranscriptHash());
     });
 
-    it('should abort on digest mismatch in commit', () => {
-        const { alice, bob, aliceCommit, bobCommit } = setupTemplateSync();
-
-        // Tamper with Bob's commit (flip a nibble in digestA)
-        const tamperedCommit = JSON.parse(JSON.stringify(bobCommit));
-        tamperedCommit.payload.digestA = tamperedCommit.payload.digestA.slice(0, -2) + 'ff';
-
-        // Alice receives tampered commit -> should abort
-        const aliceEvents = alice.handleIncoming(tamperedCommit);
+    it('should abort if Bob sends invalid signature (Tamper)', () => {
+        const { alice, bob, adaptorStartMsg } = setupAdaptor(true); // Tamper enabled
         
-        expect(alice.getState()).toBe('ABORTED');
-        expect(aliceEvents.some(e => e.kind === 'ABORTED')).toBe(true);
-    });
-
-    it('should abort on commitHash mismatch', () => {
-        const { alice, bob, aliceCommit, bobCommit } = setupTemplateSync();
-
-        // Tamper with Bob's commitHash (doesn't match digests)
-        const tamperedCommit = JSON.parse(JSON.stringify(bobCommit));
-        tamperedCommit.payload.commitHash = 'ff'.repeat(32);
-
-        // Alice receives tampered commit -> should abort due to hash mismatch
-        const aliceEvents = alice.handleIncoming(tamperedCommit);
+        // Bob receives adaptor_start -> sends TAMPERED adaptor_resp (via outboundMutator)
+        const bobEvents = bob.handleIncoming(adaptorStartMsg);
+        const bobResp = getNetOutMsgs(bobEvents).find(m => m.type === 'adaptor_resp');
+        
+        expect(bobResp).toBeDefined();
+        
+        // Verify that it IS tampered (optional, but good sanity check)
+        // We know logical check: 
+        // Alice receives tampered resp -> should abort
+        const aliceEvents = alice.handleIncoming(bobResp!);
         
         expect(alice.getState()).toBe('ABORTED');
-        expect(aliceEvents.some(e => e.kind === 'ABORTED')).toBe(true);
+        const abortEvent = aliceEvents.find(e => e.kind === 'ABORTED');
+        expect(abortEvent).toBeDefined();
+        expect((abortEvent as any).message).toContain('Invalid adaptor sig');
     });
+
 });

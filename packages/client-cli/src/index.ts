@@ -264,6 +264,29 @@ async function main() {
                 process.exit(0);
              }, 1000);
         },
+        onAdaptorNegotiating: (sid: string, transcriptHash: string) => {
+             log('');
+             log('='.repeat(60));
+             log(`STATE: ADAPTOR_NEGOTIATING`);
+             log(`Adaptor negotiation started.`);
+             if (args.verbose) {
+                 log(`sid=${sid}`);
+                 log(`transcriptHash=${transcriptHash}`);
+             }
+             log('='.repeat(60));
+        },
+        onAdaptorReady: (sid: string, transcriptHash: string, digestB: string, TB: string) => {
+             log('');
+             log('='.repeat(60));
+             log(`STATE: ADAPTOR_READY`);
+             log(`Adaptor negotiation complete.`);
+             log(`digestB: ${args.verbose ? digestB : digestB.slice(0, 18) + '...'}`);
+             log(`TB: ${args.verbose ? TB : TB.slice(0, 18) + '...'}`);
+             if (args.verbose) {
+                 log(`Transcript Hash: ${transcriptHash}`);
+             }
+             log('='.repeat(60));
+        },
         onCapsulesVerified: (sid: string, transcriptHash: string) => {
          log('');
          log('='.repeat(60));
@@ -293,7 +316,7 @@ async function main() {
       onLog: (message: string) => {
         log(message);
       },
-    }, args.tamperCapsule, args.tamperTemplateCommit);
+    }, args.tamperCapsule, args.tamperTemplateCommit, args.tamperAdaptor);
 
     // Helper: start handshake if not already started
     function tryStartHandshake(memberCount: number) {

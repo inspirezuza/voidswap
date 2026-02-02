@@ -361,6 +361,54 @@ export const TxTemplateAckMessageSchema = BaseMessageSchema.extend({
 export type TxTemplateAckMessage = z.infer<typeof TxTemplateAckMessageSchema>;
 
 // ============================================
+// Adaptor Negotiation Messages
+// ============================================
+
+export const AdaptorStartPayloadSchema = z.object({
+  digestB: Hex32Schema,
+  TB: Hex32Schema,
+  mode: z.literal("mock"),
+});
+
+export const AdaptorStartMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("adaptor_start"),
+  sid: z.string(), // Required
+  payload: AdaptorStartPayloadSchema,
+});
+
+export type AdaptorStartMessage = z.infer<typeof AdaptorStartMessageSchema>;
+
+export const AdaptorRespPayloadSchema = z.object({
+  digestB: Hex32Schema,
+  TB: Hex32Schema,
+  adaptorSigB: z.string(), // Mock adaptor sig is hex string
+  mode: z.literal("mock"),
+});
+
+export const AdaptorRespMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("adaptor_resp"),
+  sid: z.string(), // Required
+  payload: AdaptorRespPayloadSchema,
+});
+
+export type AdaptorRespMessage = z.infer<typeof AdaptorRespMessageSchema>;
+
+export const AdaptorAckPayloadSchema = z.object({
+  ok: z.boolean(),
+  reason: z.string().optional(),
+  digestB: Hex32Schema,
+  TB: Hex32Schema,
+});
+
+export const AdaptorAckMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("adaptor_ack"),
+  sid: z.string(), // Required
+  payload: AdaptorAckPayloadSchema,
+});
+
+export type AdaptorAckMessage = z.infer<typeof AdaptorAckMessageSchema>;
+
+// ============================================
 // Union Message Type
 // ============================================
 
@@ -376,6 +424,9 @@ export const MessageSchema = z.discriminatedUnion('type', [
   FeeParamsAckMessageSchema,
   TxTemplateCommitMessageSchema,
   TxTemplateAckMessageSchema,
+  AdaptorStartMessageSchema,
+  AdaptorRespMessageSchema,
+  AdaptorAckMessageSchema,
   AbortMessageSchema,
   ErrorMessageSchema,
 ]);

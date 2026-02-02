@@ -131,7 +131,16 @@ Both clients should reach `EXEC_READY` state.
 │  Alice ──tx_template_ack───► Bob                                │
 │  Alice ◄──tx_template_ack─── Bob                                │
 │                                                                 │
+│                                                                 │
 │  [EXEC_TEMPLATES_READY: Execution txs confirmed]                │
+├─────────────────────────────────────────────────────────────────┤
+│                   ADAPTOR NEGOTIATION PHASE                     │
+├─────────────────────────────────────────────────────────────────┤
+│  Alice ──adaptor_start──► Bob                                   │
+│  Bob   ──adaptor_resp───► Alice                                 │
+│  Alice ──adaptor_ack────► Bob                                   │
+│                                                                 │
+│  [ADAPTOR_READY: Signatures exchanged & verified]               │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -185,6 +194,13 @@ pnpm -C packages/client-cli dev -- --role bob --room test --autoFund ... --tampe
 ```
 Both abort with `Invalid commit hash` or `Template digest mismatch`.
 
+### Adaptor Tamper Test
+```bash
+pnpm -C packages/client-cli dev -- --role alice --room test --autoFund ...
+pnpm -C packages/client-cli dev -- --role bob --room test --autoFund ... --tamperAdaptor
+```
+Alice aborts with `Invalid adaptor sig` or similar validation error.
+
 ## Implementation Status
 
 | Component | Status | Notes |
@@ -197,6 +213,7 @@ Both abort with `Invalid commit hash` or `Template digest mismatch`.
 | EXEC_PREP Phase | ✅ Complete | Nonce sync + fee params agreement |
 | TX Template | ✅ Complete | EIP-1559 transaction builder |
 | Template Sync | ✅ Complete | Deterministic digest verification |
+| Adaptor Negotiation | ✅ Complete | Mock adaptor signature exchange |
 | Execution Phase | ❌ Not Started | Actual swap execution pending |
 | Refund Phase | ❌ Not Started | Timelock-based refund pending |
 | Idempotency | ✅ Complete | Duplicate messages handled safely |

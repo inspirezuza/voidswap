@@ -33,6 +33,8 @@ export interface SessionCallbacks {
   onExecReady: (sid: string, transcriptHash: string, nonces: { mpcAliceNonce: string; mpcBobNonce: string }, fee: FeeParamsPayload) => void;
   onExecTemplatesBuilt: (sid: string, transcriptHash: string, digestA: string, digestB: string) => void;
   onExecTemplatesReady: (sid: string, transcriptHash: string, digestA: string, digestB: string) => void;
+  onAdaptorNegotiating: (sid: string, transcriptHash: string) => void;
+  onAdaptorReady: (sid: string, transcriptHash: string, digestB: string, TB: string) => void;
   onLog: (message: string) => void;
 }
 
@@ -64,21 +66,22 @@ export class Session {
     params: HandshakeParams,
     callbacks: SessionCallbacks,
     tamperCapsule = false, // Optional flag
-    tamperTemplateCommit = false // Optional flag
+    tamperTemplateCommit = false, // Optional flag
+    tamperAdaptor = false // Optional flag
   ) {
     this.role = role;
     this.callbacks = callbacks;
     
     const localNonce = makeNonce32();
 
-    // Mutator for tamperTemplateCommit (Bob only)
+    // Mutator for tampering (Bob only)
     let outboundMutator: ((msg: Message) => Message) | undefined;
-    if (role === 'bob' && tamperTemplateCommit) {
+    
+    if (role === 'bob' && (tamperTemplateCommit || tamperAdaptor)) {
         outboundMutator = (msg: Message) => {
-            if (msg.type === 'tx_template_commit') {
+            // Tamper tx_template_commit
+            if (tamperTemplateCommit && msg.type === 'tx_template_commit') {
                  // Mutate digestB (Bob's digest) to cause mismatch
-                 // Original: e.g. "0xabc..." -> Mutated: "0x1bc..."
-                 // We specifically change the first nibble after '0x'
                  const original = msg.payload.digestB;
                  const flipped = original[2] === '0' ? '1' : '0'; 
                  const mutated = '0x' + flipped + original.slice(3);
@@ -90,6 +93,22 @@ export class Session {
                      }
                  };
             }
+            
+            // Tamper adaptor_resp
+            if (tamperAdaptor && msg.type === 'adaptor_resp') {
+                 // Mutate adaptorSigB
+                 const original = msg.payload.adaptorSigB as string;
+                 const flipped = original[2] === '0' ? '1' : '0';
+                 const mutated = '0x' + flipped + original.slice(3);
+                 return {
+                     ...msg,
+                     payload: {
+                         ...msg.payload,
+                         adaptorSigB: mutated
+                     }
+                 };
+            }
+            
             return msg;
         };
     }
@@ -170,6 +189,12 @@ export class Session {
           break;
         case 'EXEC_TEMPLATES_READY':
           this.callbacks.onExecTemplatesReady(event.sid, event.transcriptHash, event.digestA, event.digestB);
+          break;
+        case 'ADAPTOR_NEGOTIATING':
+          this.callbacks.onAdaptorNegotiating(event.sid, event.transcriptHash);
+          break;
+        case 'ADAPTOR_READY':
+          this.callbacks.onAdaptorReady(event.sid, event.transcriptHash, event.digestB, event.TB);
           break;
       } // switch
     } // for

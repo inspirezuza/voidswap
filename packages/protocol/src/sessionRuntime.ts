@@ -17,6 +17,7 @@ import { transcriptHash as computeTranscriptHash, type TranscriptRecord } from '
 import { buildExecutionTemplates, type TxTemplateResult } from './executionTemplates.js';
 import { mockKeygen, mockYShare } from './mockKeygen.js';
 import { mockTlockEncrypt, mockVerifyCapsule } from './mockTlock.js';
+import * as AdaptorMock from '@voidswap/adaptor-mock';
 
 export type SessionEvent = 
   | { kind: 'NET_OUT'; msg: Message }
@@ -30,6 +31,8 @@ export type SessionEvent =
   | { kind: 'EXEC_READY'; sid: string; transcriptHash: string; nonces: { mpcAliceNonce: string; mpcBobNonce: string }; fee: FeeParamsPayload }
   | { kind: 'EXEC_TEMPLATES_BUILT'; sid: string; transcriptHash: string; digestA: string; digestB: string }
   | { kind: 'EXEC_TEMPLATES_READY'; sid: string; transcriptHash: string; digestA: string; digestB: string }
+  | { kind: 'ADAPTOR_NEGOTIATING'; sid: string; transcriptHash: string }
+  | { kind: 'ADAPTOR_READY'; sid: string; transcriptHash: string; digestB: string; TB: string }
   | { kind: 'ABORTED'; code: string; message: string };
 
 export type SessionState = 
@@ -47,6 +50,8 @@ export type SessionState =
   | 'EXEC_TEMPLATES_BUILT'
   | 'EXEC_TEMPLATES_SYNC'
   | 'EXEC_TEMPLATES_READY'
+  | 'ADAPTOR_NEGOTIATING'
+  | 'ADAPTOR_READY'
   | 'ABORTED';
 
 export interface SessionRuntime {
@@ -110,6 +115,13 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
   let localCommitHash: string | null = null;
   let peerCommitHash: string | null = null;
   let localCommitAcked = false;
+
+  // Adaptor Negotiation State (ADAPTOR_NEGOTIATING)
+  let adaptorTB: string | undefined;
+  let adaptorSigB: unknown | undefined;
+  let adaptorAcked = false;
+  let bobLocalSecretB: string | undefined;
+
 
   function emitAbort(code: string, message: string): SessionEvent[] {
     const abortMsg: Message = {
@@ -437,13 +449,53 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
       
       // Transition to EXEC_TEMPLATES_READY
       state = 'EXEC_TEMPLATES_READY';
-      return [{
+      // Success event for template ready
+      const events: SessionEvent[] = [{
           kind: 'EXEC_TEMPLATES_READY',
           sid: sid!,
           transcriptHash: getFullTranscriptHash(),
           digestA: execTemplates!.digestA,
           digestB: execTemplates!.digestB
       }];
+      
+      // Transition to ADAPTOR_NEGOTIATING
+      state = 'ADAPTOR_NEGOTIATING';
+      events.push({
+          kind: 'ADAPTOR_NEGOTIATING',
+          sid: sid!,
+          transcriptHash: getFullTranscriptHash()
+      });
+      
+      // Trigger negotiation start
+      events.push(...checkAdaptorNegotiation());
+      
+      return events;
+  }
+
+  function checkAdaptorNegotiation(): SessionEvent[] {
+      if (state !== 'ADAPTOR_NEGOTIATING') return [];
+      
+      // Alice initiates
+      if (role === 'alice' && !adaptorTB && execTemplates) {
+          // Generate deterministic Mock TB = keccak256("TB|" + sid + "|" + digestB)
+          const preimage = `TB|${sid}|${execTemplates.digestB}`;
+          adaptorTB = '0x' + createHash('sha256').update(preimage).digest('hex'); 
+          
+          const startMsg: Message = {
+             type: 'adaptor_start',
+             from: role,
+             seq: postSeq++,
+             sid: sid!,
+             payload: {
+                 digestB: execTemplates.digestB,
+                 TB: adaptorTB,
+                 mode: 'mock'
+             }
+          };
+          recordPost(startMsg);
+          return [{ kind: 'NET_OUT', msg: startMsg }];
+      }
+      return [];
   }
 
   function mapEvent(e: RuntimeEvent): SessionEvent[] {
@@ -878,6 +930,158 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
             localCommitAcked = true;
             recordPost(msg);
             return checkTemplatesReady();
+        }
+    }
+
+    // ADAPTOR_NEGOTIATING Logic
+    if (state === 'ADAPTOR_NEGOTIATING') {
+        if (msg.sid !== sid) {
+             if (msg.type === 'abort') return [{ kind: 'ABORTED', code: (msg.payload as any).code, message: (msg.payload as any).message }];
+             return emitAbort('SID_MISMATCH', `Expected ${sid}, got ${msg.sid}`);
+        }
+        if (msg.from === role) return [];
+
+        // Seq check
+        const lastSeq = lastPostSeqBySender[msg.from];
+        if (msg.seq < 100) return emitAbort('BAD_MESSAGE', 'Post-handshake seq must be >= 100');
+        if (lastSeq !== null && msg.seq < lastSeq) {
+             return emitAbort('BAD_MESSAGE', `Replay/out-of-order: seq ${msg.seq} < last ${lastSeq}`);
+        }
+        if (lastSeq === null || msg.seq > lastSeq) {
+            lastPostSeqBySender[msg.from] = msg.seq;
+        }
+
+        if (msg.type === 'adaptor_start') {
+            if (role !== 'bob') return emitAbort('PROTOCOL_ERROR', 'Only Bob receives adaptor_start');
+            const p = msg.payload;
+            
+            // Validate digestB
+            if (!execTemplates || p.digestB !== execTemplates.digestB) {
+                return emitAbort('PROTOCOL_ERROR', 'digestB mismatch in adaptor_start');
+            }
+            
+            // Validate TB (store or check against existing?)
+            if (adaptorTB && adaptorTB !== p.TB) {
+                return emitAbort('PROTOCOL_ERROR', 'Conflicting TB in adaptor_start');
+            }
+            
+            // Idempotent
+            if (adaptorTB) return []; // already processed
+            
+            adaptorTB = p.TB;
+            recordPost(msg);
+            
+            // Bob Logic: Call AdaptorMock
+            // Note: We reuse TB as n1 for mock purposes as Alice doesn't send n1 but protocol requires alignment.
+            // Casting to Hex type as expected by AdaptorMock
+            const mockMsg1: AdaptorMock.Msg1 = {
+                sid: ('0x' + sid!) as `0x${string}`,
+                digest: p.digestB as `0x${string}`,
+                T: p.TB as `0x${string}`,
+                n1: p.TB as `0x${string}` // Reuse TB as n1
+            };
+            
+            const { adaptorSig, secret } = AdaptorMock.presignRespond(mockMsg1);
+            bobLocalSecretB = secret; 
+            
+            // Send resp
+            const respMsg: Message = {
+                type: 'adaptor_resp',
+                from: role,
+                seq: postSeq++,
+                sid: sid!,
+                payload: {
+                    digestB: p.digestB,
+                    TB: p.TB,
+                    adaptorSigB: adaptorSig,
+                    mode: 'mock'
+                }
+            };
+            
+            // Apply outbound mutator if present
+            let finalMsg = respMsg;
+            if (opts.outboundMutator) {
+                 finalMsg = opts.outboundMutator(respMsg);
+            }
+            recordPost(finalMsg);
+            return [{ kind: 'NET_OUT', msg: finalMsg }];
+        }
+        
+        if (msg.type === 'adaptor_resp') {
+            if (role !== 'alice') return emitAbort('PROTOCOL_ERROR', 'Only Alice receives adaptor_resp');
+            const p = msg.payload;
+            
+            if (!execTemplates || p.digestB !== execTemplates.digestB) return emitAbort('PROTOCOL_ERROR', 'digestB mismatch');
+            if (adaptorTB && p.TB !== adaptorTB) return emitAbort('PROTOCOL_ERROR', 'TB mismatch');
+            
+            // Validate signature structure
+            try {
+                AdaptorMock.presignFinish({
+                    sid: ('0x' + sid!) as `0x${string}`,
+                    digest: p.digestB as `0x${string}`,
+                    T: p.TB as `0x${string}`,
+                    adaptorSig: p.adaptorSigB as `0x${string}`
+                });
+            } catch (e: any) {
+                return emitAbort('PROTOCOL_ERROR', `Invalid adaptor sig: ${e.message}`);
+            }
+            
+            if (adaptorSigB) return []; // Idempotent
+            
+            adaptorSigB = p.adaptorSigB;
+            recordPost(msg);
+            
+            // Send Ack
+            const ackMsg: Message = {
+                type: 'adaptor_ack',
+                from: role,
+                seq: postSeq++,
+                sid: sid!,
+                payload: {
+                    ok: true,
+                    digestB: p.digestB,
+                    TB: p.TB
+                }
+            };
+            recordPost(ackMsg);
+            adaptorAcked = true;
+            
+            const events: SessionEvent[] = [{ kind: 'NET_OUT', msg: ackMsg }];
+            
+            // Alice considers it ready
+            state = 'ADAPTOR_READY';
+            events.push({
+                kind: 'ADAPTOR_READY',
+                sid: sid!,
+                transcriptHash: getFullTranscriptHash(),
+                digestB: p.digestB,
+                TB: p.TB
+            });
+            
+            return events;
+        }
+        
+        if (msg.type === 'adaptor_ack') {
+            if (role !== 'bob') return emitAbort('PROTOCOL_ERROR', 'Only Bob receives adaptor_ack');
+            const p = msg.payload;
+            
+            if (!p.ok) return emitAbort('PROTOCOL_ERROR', `Alice rejected adaptor: ${p.reason}`);
+            if (p.digestB !== execTemplates?.digestB) return emitAbort('PROTOCOL_ERROR', 'Ack digest mismatch');
+            if (p.TB !== adaptorTB) return emitAbort('PROTOCOL_ERROR', 'Ack TB mismatch');
+            
+            if (adaptorAcked) return []; // Idempotent
+            
+            adaptorAcked = true;
+            recordPost(msg);
+            
+            state = 'ADAPTOR_READY';
+            return [{
+                kind: 'ADAPTOR_READY',
+                sid: sid!,
+                transcriptHash: getFullTranscriptHash(),
+                digestB: p.digestB,
+                TB: p.TB
+            }];
         }
     }
 

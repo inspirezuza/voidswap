@@ -1,0 +1,74 @@
+
+> @voidswap/protocol@1.0.0 test D:\coding\finalproject\packages\protocol
+> vitest run "test/adaptorNegotiation.test.ts"
+
+
+[1m[46m RUN [49m[22m [36mv3.2.4 [39m[90mD:/coding/finalproject/packages/protocol[39m
+
+[90mstdout[2m | test/adaptorNegotiation.test.ts[2m > [22m[2mAdaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)[2m > [22m[2mshould complete adaptor negotiation successfully
+[22m[39mAdaptorStart Payload: {
+  "digestB": "0xa939851b13437a44bf281cfe40f594b94c4729e404f210393ccdeccb828632a7",
+  "TB": "24df9eb9a784c2bf694cda64a2a9b95c3c4208423e05f09250078fd369c39cfd",
+  "mode": "mock"
+}
+Bob Events: [
+  {
+    "kind": "NET_OUT",
+    "msg": {
+      "type": "abort",
+      "from": "bob",
+      "seq": 108,
+      "payload": {
+        "code": "BAD_MESSAGE",
+        "message": "Parse failed"
+      },
+      "sid": "eac0297555cb91962d0dd1039d05c127ca91cf54f052c933c47f7d1f3288b0c9"
+    }
+  },
+  {
+    "kind": "ABORTED",
+    "code": "BAD_MESSAGE",
+    "message": "Parse failed"
+  }
+]
+Bob State: ABORTED
+
+ [31m❯[39m test/adaptorNegotiation.test.ts [2m([22m[2m2 tests[22m[2m | [22m[31m2 failed[39m[2m)[22m[32m 18[2mms[22m[39m
+[31m   [31m×[31m Adaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)[2m > [22mshould complete adaptor negotiation successfully[39m[32m 13[2mms[22m[39m
+[31m     → expected undefined to be defined[39m
+[31m   [31m×[31m Adaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)[2m > [22mshould abort if Bob sends invalid signature (Tamper)[39m[32m 4[2mms[22m[39m
+[31m     → expected undefined to be defined[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 2 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m test/adaptorNegotiation.test.ts[2m > [22mAdaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)[2m > [22mshould complete adaptor negotiation successfully
+[31m[1mAssertionError[22m: expected undefined to be defined[39m
+[36m [2m❯[22m test/adaptorNegotiation.test.ts:[2m210:25[22m[39m
+    [90m208| [39m        const bobResp = getNetOutMsgs(bobEvents).find(m => m.type === …
+    [90m209| [39m        
+    [90m210| [39m        [34mexpect[39m(bobResp)[33m.[39m[34mtoBeDefined[39m()[33m;[39m
+    [90m   | [39m                        [31m^[39m
+    [90m211| [39m        expect(bob.getState()).toBe('ADAPTOR_NEGOTIATING'); // Bob wai…
+    [90m212| [39m        
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m test/adaptorNegotiation.test.ts[2m > [22mAdaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)[2m > [22mshould abort if Bob sends invalid signature (Tamper)
+[31m[1mAssertionError[22m: expected undefined to be defined[39m
+[36m [2m❯[22m test/adaptorNegotiation.test.ts:[2m241:25[22m[39m
+    [90m239| [39m        const bobResp = getNetOutMsgs(bobEvents).find(m => m.type === …
+    [90m240| [39m        
+    [90m241| [39m        [34mexpect[39m(bobResp)[33m.[39m[34mtoBeDefined[39m()[33m;[39m
+    [90m   | [39m                        [31m^[39m
+    [90m242| [39m        
+    [90m243| [39m        [90m// Verify that it IS tampered (optional, but good sanity check)[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m2 failed[39m[22m[90m (2)[39m
+[2m   Start at [22m 05:42:29
+[2m   Duration [22m 887ms[2m (transform 179ms, setup 0ms, collect 406ms, tests 18ms, environment 0ms, prepare 121ms)[22m
+
+ ELIFECYCLE  Test failed. See above for more details.

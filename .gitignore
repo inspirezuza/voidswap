@@ -38,3 +38,10 @@ broadcast/
 # Private keys (never commit!)
 *.key
 *.pem
+
+# Temporary test output
+test_output*.txt
+
+# AI Agent Artifacts
+.gemini/
+.agent/

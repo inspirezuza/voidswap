@@ -1,0 +1,69 @@
+
+> @voidswap/protocol@1.0.0 test D:\coding\finalproject\packages\protocol
+> vitest run "test/adaptorNegotiation.test.ts"
+
+
+[1m[46m RUN [49m[22m [36mv3.2.4 [39m[90mD:/coding/finalproject/packages/protocol[39m
+
+[90mstdout[2m | test/adaptorNegotiation.test.ts[2m > [22m[2mAdaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)[2m > [22m[2mshould complete adaptor negotiation successfully
+[22m[39mAdaptorStart Payload: {
+  "digestB": "0xa939851b13437a44bf281cfe40f594b94c4729e404f210393ccdeccb828632a7",
+  "TB": "0x24df9eb9a784c2bf694cda64a2a9b95c3c4208423e05f09250078fd369c39cfd",
+  "mode": "mock"
+}
+
+ [31m❯[39m test/adaptorNegotiation.test.ts [2m([22m[2m2 tests[22m[2m | [22m[31m2 failed[39m[2m)[22m[32m 26[2mms[22m[39m
+[31m   [31m×[31m Adaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)[2m > [22mshould complete adaptor negotiation successfully[39m[32m 22[2mms[22m[39m
+[31m     → Expected bytes32, got bytes31.
+
+Version: viem@2.45.0[39m
+[31m   [31m×[31m Adaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)[2m > [22mshould abort if Bob sends invalid signature (Tamper)[39m[32m 3[2mms[22m[39m
+[31m     → Expected bytes32, got bytes31.
+
+Version: viem@2.45.0[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 2 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m test/adaptorNegotiation.test.ts[2m > [22mAdaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)[2m > [22mshould complete adaptor negotiation successfully
+[31m[1mBytesSizeMismatchError[22m: Expected bytes32, got bytes31.
+
+Version: viem@2.45.0[39m
+[90m [2m❯[22m encode ../../node_modules/.pnpm/viem@2.45.0_typescript@5.9.3_zod@3.25.76/node_modules/viem/utils/abi/encodePacked.ts:[2m121:13[22m[39m
+[90m [2m❯[22m encodePacked ../../node_modules/.pnpm/viem@2.45.0_typescript@5.9.3_zod@3.25.76/node_modules/viem/utils/abi/encodePacked.ts:[2m74:15[22m[39m
+[36m [2m❯[22m Module.presignRespond ../adaptor-mock/src/mockAdaptor.ts:[2m67:30[22m[39m
+    [90m 65| [39m
+    [90m 66| [39m    [90m// secret = keccak256("sec" | sid | digest | T | n1 | n2)[39m
+    [90m 67| [39m    [35mconst[39m secret [33m=[39m [34mkeccak256[39m([34mencodePacked[39m(
+    [90m   | [39m                             [31m^[39m
+    [90m 68| [39m        ['string', 'bytes32', 'bytes32', 'bytes32', 'bytes32', 'bytes3…
+    [90m 69| [39m        [[32m'sec'[39m[33m,[39m sid[33m,[39m digest[33m,[39m [33mT[39m[33m,[39m n1[33m,[39m n2]
+[90m [2m❯[22m Object.handleIncoming src/sessionRuntime.ts:[2m984:56[22m[39m
+[90m [2m❯[22m test/adaptorNegotiation.test.ts:[2m205:31[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m test/adaptorNegotiation.test.ts[2m > [22mAdaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)[2m > [22mshould abort if Bob sends invalid signature (Tamper)
+[31m[1mBytesSizeMismatchError[22m: Expected bytes32, got bytes31.
+
+Version: viem@2.45.0[39m
+[90m [2m❯[22m encode ../../node_modules/.pnpm/viem@2.45.0_typescript@5.9.3_zod@3.25.76/node_modules/viem/utils/abi/encodePacked.ts:[2m121:13[22m[39m
+[90m [2m❯[22m encodePacked ../../node_modules/.pnpm/viem@2.45.0_typescript@5.9.3_zod@3.25.76/node_modules/viem/utils/abi/encodePacked.ts:[2m74:15[22m[39m
+[36m [2m❯[22m Module.presignRespond ../adaptor-mock/src/mockAdaptor.ts:[2m67:30[22m[39m
+    [90m 65| [39m
+    [90m 66| [39m    [90m// secret = keccak256("sec" | sid | digest | T | n1 | n2)[39m
+    [90m 67| [39m    [35mconst[39m secret [33m=[39m [34mkeccak256[39m([34mencodePacked[39m(
+    [90m   | [39m                             [31m^[39m
+    [90m 68| [39m        ['string', 'bytes32', 'bytes32', 'bytes32', 'bytes32', 'bytes3…
+    [90m 69| [39m        [[32m'sec'[39m[33m,[39m sid[33m,[39m digest[33m,[39m [33mT[39m[33m,[39m n1[33m,[39m n2]
+[90m [2m❯[22m Object.handleIncoming src/sessionRuntime.ts:[2m984:56[22m[39m
+[90m [2m❯[22m test/adaptorNegotiation.test.ts:[2m238:31[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m2 failed[39m[22m[90m (2)[39m
+[2m   Start at [22m 05:43:29
+[2m   Duration [22m 1.05s[2m (transform 167ms, setup 0ms, collect 485ms, tests 26ms, environment 0ms, prepare 178ms)[22m
+
+ ELIFECYCLE  Test failed. See above for more details.
