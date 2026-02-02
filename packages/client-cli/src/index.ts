@@ -287,6 +287,57 @@ async function main() {
              }
              log('='.repeat(60));
         },
+        onExecutionPlanned: async (sid: string, transcriptHash: string, flow: 'B', roleAction: string, txB: { unsigned: any; digest: string }, txA: { unsigned: any; digest: string }) => {
+             log('');
+             log('='.repeat(60));
+             log(`STATE: EXECUTION_PLANNED`);
+             log(`Flow: ${flow}`);
+             log(`My action: ${roleAction}`);
+             log(`tx_B: to=${txB.unsigned.to}, value=${txB.unsigned.value}, nonce=${txB.unsigned.nonce}`);
+             log(`tx_B digest: ${args.verbose ? txB.digest : txB.digest.slice(0, 18) + '...'}`);
+             if (args.verbose) {
+                 log(`tx_A digest: ${txA.digest}`);
+                 log(`Transcript Hash: ${transcriptHash}`);
+             }
+             log('='.repeat(60));
+
+             // Auto-broadcast for Bob
+             if (args.role === 'bob' && args.autoBroadcast && roleAction === 'broadcast_tx_B') {
+                 log('');
+                 log('Auto-broadcasting tx_B...');
+                 try {
+                     // Import dynamically to avoid circular deps
+                     const { createWalletClient, http } = await import('viem');
+                     const { privateKeyToAccount } = await import('viem/accounts');
+                     const { anvil } = await import('viem/chains');
+                     const { mockKeygenWithPriv } = await import('@voidswap/protocol');
+
+                     // Get Bob's mock private key
+                     const bobMpc = mockKeygenWithPriv(sid, 'bob');
+                     const account = privateKeyToAccount(bobMpc.privKey as `0x${string}`);
+
+                     const walletClient = createWalletClient({
+                         account,
+                         chain: anvil,
+                         transport: http(args.rpcUrl)
+                     });
+
+                     const txHash = await walletClient.sendTransaction({
+                         to: txB.unsigned.to as `0x${string}`,
+                         value: BigInt(txB.unsigned.value),
+                         nonce: txB.unsigned.nonce,
+                         gas: BigInt(txB.unsigned.gas),
+                         maxFeePerGas: BigInt(txB.unsigned.maxFeePerGas),
+                         maxPriorityFeePerGas: BigInt(txB.unsigned.maxPriorityFeePerGas),
+                     });
+
+                     log(`Broadcasted tx_B: ${txHash}`);
+                     log('='.repeat(60));
+                 } catch (e: any) {
+                     log(`Auto-broadcast FAILED: ${e.message}`);
+                 }
+             }
+        },
         onCapsulesVerified: (sid: string, transcriptHash: string) => {
          log('');
          log('='.repeat(60));

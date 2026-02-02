@@ -33,6 +33,7 @@ export type SessionEvent =
   | { kind: 'EXEC_TEMPLATES_READY'; sid: string; transcriptHash: string; digestA: string; digestB: string }
   | { kind: 'ADAPTOR_NEGOTIATING'; sid: string; transcriptHash: string }
   | { kind: 'ADAPTOR_READY'; sid: string; transcriptHash: string; digestB: string; TB: string }
+  | { kind: 'EXECUTION_PLANNED'; sid: string; transcriptHash: string; flow: 'B'; roleAction: 'broadcast_tx_B' | 'wait_for_tx_B_confirm'; txB: { unsigned: any; digest: string }; txA: { unsigned: any; digest: string } }
   | { kind: 'ABORTED'; code: string; message: string };
 
 export type SessionState = 
@@ -52,6 +53,7 @@ export type SessionState =
   | 'EXEC_TEMPLATES_READY'
   | 'ADAPTOR_NEGOTIATING'
   | 'ADAPTOR_READY'
+  | 'EXECUTION_PLANNED'
   | 'ABORTED';
 
 export interface SessionRuntime {
@@ -1058,6 +1060,18 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
                 TB: p.TB
             });
             
+            // Transition to EXECUTION_PLANNED
+            state = 'EXECUTION_PLANNED';
+            events.push({
+                kind: 'EXECUTION_PLANNED',
+                sid: sid!,
+                transcriptHash: getFullTranscriptHash(),
+                flow: 'B',
+                roleAction: 'wait_for_tx_B_confirm', // Alice waits for Bob's tx_B
+                txB: { unsigned: execTemplates!.txB, digest: execTemplates!.digestB },
+                txA: { unsigned: execTemplates!.txA, digest: execTemplates!.digestA }
+            });
+            
             return events;
         }
         
@@ -1075,13 +1089,27 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
             recordPost(msg);
             
             state = 'ADAPTOR_READY';
-            return [{
+            const events: SessionEvent[] = [{
                 kind: 'ADAPTOR_READY',
                 sid: sid!,
                 transcriptHash: getFullTranscriptHash(),
                 digestB: p.digestB,
                 TB: p.TB
             }];
+            
+            // Transition to EXECUTION_PLANNED
+            state = 'EXECUTION_PLANNED';
+            events.push({
+                kind: 'EXECUTION_PLANNED',
+                sid: sid!,
+                transcriptHash: getFullTranscriptHash(),
+                flow: 'B',
+                roleAction: 'broadcast_tx_B', // Bob broadcasts tx_B
+                txB: { unsigned: execTemplates!.txB, digest: execTemplates!.digestB },
+                txA: { unsigned: execTemplates!.txA, digest: execTemplates!.digestA }
+            });
+            
+            return events;
         }
     }
 

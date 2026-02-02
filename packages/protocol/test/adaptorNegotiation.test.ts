@@ -210,18 +210,30 @@ describe('Adaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)', () => {
         
         expect(aliceAck).toBeDefined();
         
-        // Alice should emit ADAPTOR_READY
+        // Alice should emit ADAPTOR_READY then EXECUTION_PLANNED
         expect(aliceEvents.some(e => e.kind === 'ADAPTOR_READY')).toBe(true);
-        expect(alice.getState()).toBe('ADAPTOR_READY');
+        expect(aliceEvents.some(e => e.kind === 'EXECUTION_PLANNED')).toBe(true);
+        expect(alice.getState()).toBe('EXECUTION_PLANNED');
         
-        // Bob receives adaptor_ack -> emits ADAPTOR_READY
+        // Check Alice's roleAction
+        const alicePlan = aliceEvents.find(e => e.kind === 'EXECUTION_PLANNED') as any;
+        expect(alicePlan.roleAction).toBe('wait_for_tx_B_confirm');
+        expect(alicePlan.flow).toBe('B');
+        expect(alicePlan.txB).toBeDefined();
+        expect(alicePlan.txA).toBeDefined();
+        
+        // Bob receives adaptor_ack -> emits ADAPTOR_READY then EXECUTION_PLANNED
         const bobFinalEvents = bob.handleIncoming(aliceAck!);
         expect(bobFinalEvents.some(e => e.kind === 'ADAPTOR_READY')).toBe(true);
-        expect(bob.getState()).toBe('ADAPTOR_READY');
+        expect(bobFinalEvents.some(e => e.kind === 'EXECUTION_PLANNED')).toBe(true);
+        expect(bob.getState()).toBe('EXECUTION_PLANNED');
+        
+        // Check Bob's roleAction
+        const bobPlan = bobFinalEvents.find(e => e.kind === 'EXECUTION_PLANNED') as any;
+        expect(bobPlan.roleAction).toBe('broadcast_tx_B');
+        expect(bobPlan.flow).toBe('B');
         
         // Verify transcript hashes (should match if implemented correctly)
-        // Alice includes adaptor_ack in transcript when sending
-        // Bob includes adaptor_ack when receiving
         expect(alice.getTranscriptHash()).toBe(bob.getTranscriptHash());
     });
 

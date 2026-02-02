@@ -23,6 +23,7 @@ export interface CliArgs {
   autoFund: boolean;
   fundingKey?: string;
   confirmations: number;
+  autoBroadcast: boolean;
 }
 
 /**
@@ -54,6 +55,7 @@ export function parseArgs(argv: string[]): CliArgs {
   let autoFund = false;
   let fundingKey: string | undefined;
   let confirmations = 1;
+  let autoBroadcast = false;
 
   // Parse args
   for (let i = 0; i < args.length; i++) {
@@ -142,6 +144,9 @@ export function parseArgs(argv: string[]): CliArgs {
         confirmations = parseInt(next, 10);
         i++;
         break;
+      case '--autoBroadcast':
+        autoBroadcast = true;
+        break;
     }
   }
 
@@ -179,7 +184,8 @@ export function parseArgs(argv: string[]): CliArgs {
     rpcUrl,
     autoFund,
     fundingKey,
-    confirmations
+    confirmations,
+    autoBroadcast
   };
 }
 
