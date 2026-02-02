@@ -37,7 +37,7 @@ function getNetOutMsgs(events: SessionEvent[]): Message[] {
 }
 
 // Helper to fast-forward to ADAPTOR_NEGOTIATING
-function setupAdaptor(tamperAdaptor = false): { alice: SessionRuntime; bob: SessionRuntime; adaptorStartMsg: Message } {
+function setupAdaptor(tamperAdaptor = false): { alice: SessionRuntime; bob: SessionRuntime; adaptorStartMsgs: Message[] } {
     const alice = createSessionRuntime({ role: 'alice', params: sampleParams, localNonce: aliceNonce });
     const bob = createSessionRuntime({ 
         role: 'bob', 
@@ -46,8 +46,8 @@ function setupAdaptor(tamperAdaptor = false): { alice: SessionRuntime; bob: Sess
         outboundMutator: tamperAdaptor ? (msg) => {
              if (msg.type === 'adaptor_resp') {
                  // Tamper signature by truncation to trigger length check failure in AdaptorMock
-                 const original = msg.payload.adaptorSigB as string;
-                 return { ...msg, payload: { ...msg.payload, adaptorSigB: original.slice(0, -2) } };
+                 const original = msg.payload.adaptorSig as string;
+                 return { ...msg, payload: { ...msg.payload, adaptorSig: original.slice(0, -2) } };
              }
              return msg;
         } : undefined
@@ -178,58 +178,73 @@ function setupAdaptor(tamperAdaptor = false): { alice: SessionRuntime; bob: Sess
     // Bob receives Alice's Ack
     let bobFinalEvents = bob.handleIncoming(aliceTermAck!);
 
-    // Alice should have emitted 'ADAPTOR_NEGOTIATING' and 'adaptor_start'
-    const adaptorStartMsg = getNetOutMsgs(aliceFinalEvents).find(m => m.type === 'adaptor_start');
+    // Alice should have emitted 'ADAPTOR_NEGOTIATING' and TWO adaptor_start messages (B and A)
+    const adaptorStartMsgs = getNetOutMsgs(aliceFinalEvents).filter(m => m.type === 'adaptor_start');
     
-    if (!adaptorStartMsg) {
-        throw new Error('Alice did not emit adaptor_start');
+    if (adaptorStartMsgs.length !== 2) {
+        throw new Error(`Alice should emit 2 adaptor_start messages, got ${adaptorStartMsgs.length}`);
     }
     
     // Verify States
     expect(alice.getState()).toBe('ADAPTOR_NEGOTIATING');
     expect(bob.getState()).toBe('ADAPTOR_NEGOTIATING'); // Bob transitions when he receives Ack from Alice
 
-    return { alice, bob, adaptorStartMsg };
+    return { alice, bob, adaptorStartMsgs };
 }
 
 describe('Adaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)', () => {
     
     it('should complete adaptor negotiation successfully', () => {
-        const { alice, bob, adaptorStartMsg } = setupAdaptor(false);
+        const { alice, bob, adaptorStartMsgs } = setupAdaptor(false);
         
-        // Bob receives adaptor_start -> sends adaptor_resp
-        const bobEvents = bob.handleIncoming(adaptorStartMsg);
-        const bobResp = getNetOutMsgs(bobEvents).find(m => m.type === 'adaptor_resp');
+        // Process both legs: Alice sends 2 adaptor_start (B and A), Bob responds to each
+        let allBobResponses: Message[] = [];
+        let allAliceAcks: Message[] = [];
+        let lastAliceEvents: SessionEvent[] = [];
+        let lastBobEvents: SessionEvent[] = [];
         
-        expect(bobResp).toBeDefined();
-        expect(bob.getState()).toBe('ADAPTOR_NEGOTIATING'); // Bob waits for ack
+        // Bob receives all adaptor_start messages
+        for (const startMsg of adaptorStartMsgs) {
+            const bobEvents = bob.handleIncoming(startMsg);
+            allBobResponses.push(...getNetOutMsgs(bobEvents).filter(m => m.type === 'adaptor_resp'));
+        }
         
-        // Alice receives adaptor_resp -> sends adaptor_ack
-        const aliceEvents = alice.handleIncoming(bobResp!);
-        const aliceAck = getNetOutMsgs(aliceEvents).find(m => m.type === 'adaptor_ack');
+        expect(allBobResponses.length).toBe(2); // One response per leg
+        expect(bob.getState()).toBe('ADAPTOR_NEGOTIATING'); // Still waiting for acks
         
-        expect(aliceAck).toBeDefined();
+        // Alice receives all adaptor_resp messages
+        for (const respMsg of allBobResponses) {
+            const aliceEvents = alice.handleIncoming(respMsg);
+            lastAliceEvents = aliceEvents;
+            allAliceAcks.push(...getNetOutMsgs(aliceEvents).filter(m => m.type === 'adaptor_ack'));
+        }
         
-        // Alice should emit ADAPTOR_READY then EXECUTION_PLANNED
-        expect(aliceEvents.some(e => e.kind === 'ADAPTOR_READY')).toBe(true);
-        expect(aliceEvents.some(e => e.kind === 'EXECUTION_PLANNED')).toBe(true);
+        expect(allAliceAcks.length).toBe(2); // One ack per leg
+        
+        // Alice should emit ADAPTOR_READY then EXECUTION_PLANNED after BOTH legs complete
+        expect(lastAliceEvents.some(e => e.kind === 'ADAPTOR_READY')).toBe(true);
+        expect(lastAliceEvents.some(e => e.kind === 'EXECUTION_PLANNED')).toBe(true);
         expect(alice.getState()).toBe('EXECUTION_PLANNED');
         
         // Check Alice's roleAction
-        const alicePlan = aliceEvents.find(e => e.kind === 'EXECUTION_PLANNED') as any;
+        const alicePlan = lastAliceEvents.find(e => e.kind === 'EXECUTION_PLANNED') as any;
         expect(alicePlan.roleAction).toBe('wait_for_tx_B_confirm');
         expect(alicePlan.flow).toBe('B');
         expect(alicePlan.txB).toBeDefined();
         expect(alicePlan.txA).toBeDefined();
         
-        // Bob receives adaptor_ack -> emits ADAPTOR_READY then EXECUTION_PLANNED
-        const bobFinalEvents = bob.handleIncoming(aliceAck!);
-        expect(bobFinalEvents.some(e => e.kind === 'ADAPTOR_READY')).toBe(true);
-        expect(bobFinalEvents.some(e => e.kind === 'EXECUTION_PLANNED')).toBe(true);
+        // Bob receives all adaptor_acks
+        for (const ackMsg of allAliceAcks) {
+            lastBobEvents = bob.handleIncoming(ackMsg);
+        }
+        
+        // Bob should emit ADAPTOR_READY then EXECUTION_PLANNED after BOTH legs acked
+        expect(lastBobEvents.some(e => e.kind === 'ADAPTOR_READY')).toBe(true);
+        expect(lastBobEvents.some(e => e.kind === 'EXECUTION_PLANNED')).toBe(true);
         expect(bob.getState()).toBe('EXECUTION_PLANNED');
         
         // Check Bob's roleAction
-        const bobPlan = bobFinalEvents.find(e => e.kind === 'EXECUTION_PLANNED') as any;
+        const bobPlan = lastBobEvents.find(e => e.kind === 'EXECUTION_PLANNED') as any;
         expect(bobPlan.roleAction).toBe('broadcast_tx_B');
         expect(bobPlan.flow).toBe('B');
         
@@ -238,10 +253,10 @@ describe('Adaptor Negotiation (ADAPTOR_NEGOTIATING -> ADAPTOR_READY)', () => {
     });
 
     it('should abort if Bob sends invalid signature (Tamper)', () => {
-        const { alice, bob, adaptorStartMsg } = setupAdaptor(true); // Tamper enabled
+        const { alice, bob, adaptorStartMsgs } = setupAdaptor(true); // Tamper enabled
         
-        // Bob receives adaptor_start -> sends TAMPERED adaptor_resp (via outboundMutator)
-        const bobEvents = bob.handleIncoming(adaptorStartMsg);
+        // Bob receives first adaptor_start -> sends TAMPERED adaptor_resp (via outboundMutator)
+        const bobEvents = bob.handleIncoming(adaptorStartMsgs[0]);
         const bobResp = getNetOutMsgs(bobEvents).find(m => m.type === 'adaptor_resp');
         
         expect(bobResp).toBeDefined();

@@ -32,7 +32,7 @@ export type SessionEvent =
   | { kind: 'EXEC_TEMPLATES_BUILT'; sid: string; transcriptHash: string; digestA: string; digestB: string }
   | { kind: 'EXEC_TEMPLATES_READY'; sid: string; transcriptHash: string; digestA: string; digestB: string }
   | { kind: 'ADAPTOR_NEGOTIATING'; sid: string; transcriptHash: string }
-  | { kind: 'ADAPTOR_READY'; sid: string; transcriptHash: string; digestB: string; TB: string }
+  | { kind: 'ADAPTOR_READY'; sid: string; transcriptHash: string; digestA: string; digestB: string; TA: string; TB: string }
   | { kind: 'EXECUTION_PLANNED'; sid: string; transcriptHash: string; flow: 'B'; roleAction: 'broadcast_tx_B' | 'wait_for_tx_B_confirm'; txB: { unsigned: any; digest: string }; txA: { unsigned: any; digest: string } }
   | { kind: 'ABORTED'; code: string; message: string };
 
@@ -119,10 +119,10 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
   let localCommitAcked = false;
 
   // Adaptor Negotiation State (ADAPTOR_NEGOTIATING)
-  let adaptorTB: string | undefined;
-  let adaptorSigB: unknown | undefined;
-  let adaptorAcked = false;
-  let bobLocalSecretB: string | undefined;
+  // Per-leg state: { T, adaptorSig, acked }
+  type AdaptorLegState = { T?: string; adaptorSig?: string; acked?: boolean };
+  const adaptorLegs: { A: AdaptorLegState; B: AdaptorLegState } = { A: {}, B: {} };
+  let bobLocalSecret: string | undefined; // Bob's shared secret for both legs
 
 
   function emitAbort(code: string, message: string): SessionEvent[] {
@@ -477,25 +477,55 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
   function checkAdaptorNegotiation(): SessionEvent[] {
       if (state !== 'ADAPTOR_NEGOTIATING') return [];
       
-      // Alice initiates
-      if (role === 'alice' && !adaptorTB && execTemplates) {
-          // Generate deterministic Mock TB = keccak256("TB|" + sid + "|" + digestB)
-          const preimage = `TB|${sid}|${execTemplates.digestB}`;
-          adaptorTB = '0x' + createHash('sha256').update(preimage).digest('hex'); 
+      // Alice initiates BOTH legs (B first, then A - deterministic order)
+      if (role === 'alice' && execTemplates) {
+          const events: SessionEvent[] = [];
           
-          const startMsg: Message = {
-             type: 'adaptor_start',
-             from: role,
-             seq: postSeq++,
-             sid: sid!,
-             payload: {
-                 digestB: execTemplates.digestB,
-                 TB: adaptorTB,
-                 mode: 'mock'
-             }
-          };
-          recordPost(startMsg);
-          return [{ kind: 'NET_OUT', msg: startMsg }];
+          // Leg B: initiate if not started
+          if (!adaptorLegs.B.T) {
+              const preimageB = `TB|${sid}|${execTemplates.digestB}`;
+              const TB = '0x' + createHash('sha256').update(preimageB).digest('hex');
+              adaptorLegs.B.T = TB;
+              
+              const startMsgB: Message = {
+                 type: 'adaptor_start',
+                 from: role,
+                 seq: postSeq++,
+                 sid: sid!,
+                 payload: {
+                     which: 'B',
+                     digest: execTemplates.digestB,
+                     T: TB,
+                     mode: 'mock'
+                 }
+              };
+              recordPost(startMsgB);
+              events.push({ kind: 'NET_OUT', msg: startMsgB });
+          }
+          
+          // Leg A: initiate if not started
+          if (!adaptorLegs.A.T) {
+              const preimageA = `TA|${sid}|${execTemplates.digestA}`;
+              const TA = '0x' + createHash('sha256').update(preimageA).digest('hex');
+              adaptorLegs.A.T = TA;
+              
+              const startMsgA: Message = {
+                 type: 'adaptor_start',
+                 from: role,
+                 seq: postSeq++,
+                 sid: sid!,
+                 payload: {
+                     which: 'A',
+                     digest: execTemplates.digestA,
+                     T: TA,
+                     mode: 'mock'
+                 }
+              };
+              recordPost(startMsgA);
+              events.push({ kind: 'NET_OUT', msg: startMsgA });
+          }
+          
+          return events;
       }
       return [];
   }
@@ -956,35 +986,42 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
         if (msg.type === 'adaptor_start') {
             if (role !== 'bob') return emitAbort('PROTOCOL_ERROR', 'Only Bob receives adaptor_start');
             const p = msg.payload;
+            const which = p.which; // 'A' or 'B'
+            const leg = adaptorLegs[which];
             
-            // Validate digestB
-            if (!execTemplates || p.digestB !== execTemplates.digestB) {
-                return emitAbort('PROTOCOL_ERROR', 'digestB mismatch in adaptor_start');
+            // Validate digest matches expected
+            const expectedDigest = which === 'B' ? execTemplates?.digestB : execTemplates?.digestA;
+            if (!execTemplates || p.digest !== expectedDigest) {
+                return emitAbort('PROTOCOL_ERROR', `digest mismatch in adaptor_start for ${which}`);
             }
             
-            // Validate TB (store or check against existing?)
-            if (adaptorTB && adaptorTB !== p.TB) {
-                return emitAbort('PROTOCOL_ERROR', 'Conflicting TB in adaptor_start');
+            // Validate T (store or check against existing)
+            if (leg.T && leg.T !== p.T) {
+                return emitAbort('PROTOCOL_ERROR', `Conflicting T in adaptor_start for ${which}`);
             }
             
             // Idempotent
-            if (adaptorTB) return []; // already processed
+            if (leg.T && leg.adaptorSig) return []; // already processed
             
-            adaptorTB = p.TB;
+            leg.T = p.T;
             recordPost(msg);
             
-            // Bob Logic: Call AdaptorMock
-            // Note: We reuse TB as n1 for mock purposes as Alice doesn't send n1 but protocol requires alignment.
-            // Casting to Hex type as expected by AdaptorMock
+            // Bob Logic: Generate adaptor signature
+            // For leg B: generate fresh secret via presignRespond
+            // For leg A: reuse the same secret from B (mock's determinism handles this)
             const mockMsg1: AdaptorMock.Msg1 = {
                 sid: ('0x' + sid!) as `0x${string}`,
-                digest: p.digestB as `0x${string}`,
-                T: p.TB as `0x${string}`,
-                n1: p.TB as `0x${string}` // Reuse TB as n1
+                digest: p.digest as `0x${string}`,
+                T: p.T as `0x${string}`,
+                n1: p.T as `0x${string}` // Reuse T as n1
             };
             
             const { adaptorSig, secret } = AdaptorMock.presignRespond(mockMsg1);
-            bobLocalSecretB = secret; 
+            if (which === 'B') {
+                bobLocalSecret = secret; // Store secret from B for cross-binding
+            }
+            
+            leg.adaptorSig = adaptorSig;
             
             // Send resp
             const respMsg: Message = {
@@ -993,9 +1030,10 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
                 seq: postSeq++,
                 sid: sid!,
                 payload: {
-                    digestB: p.digestB,
-                    TB: p.TB,
-                    adaptorSigB: adaptorSig,
+                    which,
+                    digest: p.digest,
+                    T: p.T,
+                    adaptorSig,
                     mode: 'mock'
                 }
             };
@@ -1012,25 +1050,29 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
         if (msg.type === 'adaptor_resp') {
             if (role !== 'alice') return emitAbort('PROTOCOL_ERROR', 'Only Alice receives adaptor_resp');
             const p = msg.payload;
+            const which = p.which;
+            const leg = adaptorLegs[which];
             
-            if (!execTemplates || p.digestB !== execTemplates.digestB) return emitAbort('PROTOCOL_ERROR', 'digestB mismatch');
-            if (adaptorTB && p.TB !== adaptorTB) return emitAbort('PROTOCOL_ERROR', 'TB mismatch');
+            const expectedDigest = which === 'B' ? execTemplates?.digestB : execTemplates?.digestA;
+            if (!execTemplates || p.digest !== expectedDigest) return emitAbort('PROTOCOL_ERROR', `digest mismatch for ${which}`);
+            if (leg.T && p.T !== leg.T) return emitAbort('PROTOCOL_ERROR', `T mismatch for ${which}`);
             
             // Validate signature structure
             try {
                 AdaptorMock.presignFinish({
                     sid: ('0x' + sid!) as `0x${string}`,
-                    digest: p.digestB as `0x${string}`,
-                    T: p.TB as `0x${string}`,
-                    adaptorSig: p.adaptorSigB as `0x${string}`
+                    digest: p.digest as `0x${string}`,
+                    T: p.T as `0x${string}`,
+                    adaptorSig: p.adaptorSig as `0x${string}`
                 });
             } catch (e: any) {
-                return emitAbort('PROTOCOL_ERROR', `Invalid adaptor sig: ${e.message}`);
+                return emitAbort('PROTOCOL_ERROR', `Invalid adaptor sig for ${which}: ${e.message}`);
             }
             
-            if (adaptorSigB) return []; // Idempotent
+            if (leg.adaptorSig) return []; // Idempotent
             
-            adaptorSigB = p.adaptorSigB;
+            leg.adaptorSig = p.adaptorSig;
+            leg.T = p.T;
             recordPost(msg);
             
             // Send Ack
@@ -1040,37 +1082,42 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
                 seq: postSeq++,
                 sid: sid!,
                 payload: {
+                    which,
                     ok: true,
-                    digestB: p.digestB,
-                    TB: p.TB
+                    digest: p.digest,
+                    T: p.T
                 }
             };
             recordPost(ackMsg);
-            adaptorAcked = true;
+            leg.acked = true;
             
             const events: SessionEvent[] = [{ kind: 'NET_OUT', msg: ackMsg }];
             
-            // Alice considers it ready
-            state = 'ADAPTOR_READY';
-            events.push({
-                kind: 'ADAPTOR_READY',
-                sid: sid!,
-                transcriptHash: getFullTranscriptHash(),
-                digestB: p.digestB,
-                TB: p.TB
-            });
-            
-            // Transition to EXECUTION_PLANNED
-            state = 'EXECUTION_PLANNED';
-            events.push({
-                kind: 'EXECUTION_PLANNED',
-                sid: sid!,
-                transcriptHash: getFullTranscriptHash(),
-                flow: 'B',
-                roleAction: 'wait_for_tx_B_confirm', // Alice waits for Bob's tx_B
-                txB: { unsigned: execTemplates!.txB, digest: execTemplates!.digestB },
-                txA: { unsigned: execTemplates!.txA, digest: execTemplates!.digestA }
-            });
+            // Check if BOTH legs are complete (Alice has received both adaptor sigs)
+            if (adaptorLegs.A.adaptorSig && adaptorLegs.B.adaptorSig) {
+                state = 'ADAPTOR_READY';
+                events.push({
+                    kind: 'ADAPTOR_READY',
+                    sid: sid!,
+                    transcriptHash: getFullTranscriptHash(),
+                    digestA: execTemplates!.digestA,
+                    digestB: execTemplates!.digestB,
+                    TA: adaptorLegs.A.T!,
+                    TB: adaptorLegs.B.T!
+                });
+                
+                // Transition to EXECUTION_PLANNED
+                state = 'EXECUTION_PLANNED';
+                events.push({
+                    kind: 'EXECUTION_PLANNED',
+                    sid: sid!,
+                    transcriptHash: getFullTranscriptHash(),
+                    flow: 'B',
+                    roleAction: 'wait_for_tx_B_confirm', // Alice waits for Bob's tx_B
+                    txB: { unsigned: execTemplates!.txB, digest: execTemplates!.digestB },
+                    txA: { unsigned: execTemplates!.txA, digest: execTemplates!.digestA }
+                });
+            }
             
             return events;
         }
@@ -1078,36 +1125,47 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
         if (msg.type === 'adaptor_ack') {
             if (role !== 'bob') return emitAbort('PROTOCOL_ERROR', 'Only Bob receives adaptor_ack');
             const p = msg.payload;
+            const which = p.which;
+            const leg = adaptorLegs[which];
             
-            if (!p.ok) return emitAbort('PROTOCOL_ERROR', `Alice rejected adaptor: ${p.reason}`);
-            if (p.digestB !== execTemplates?.digestB) return emitAbort('PROTOCOL_ERROR', 'Ack digest mismatch');
-            if (p.TB !== adaptorTB) return emitAbort('PROTOCOL_ERROR', 'Ack TB mismatch');
+            if (!p.ok) return emitAbort('PROTOCOL_ERROR', `Alice rejected adaptor for ${which}: ${p.reason}`);
             
-            if (adaptorAcked) return []; // Idempotent
+            const expectedDigest = which === 'B' ? execTemplates?.digestB : execTemplates?.digestA;
+            if (p.digest !== expectedDigest) return emitAbort('PROTOCOL_ERROR', `Ack digest mismatch for ${which}`);
+            if (p.T !== leg.T) return emitAbort('PROTOCOL_ERROR', `Ack T mismatch for ${which}`);
             
-            adaptorAcked = true;
+            if (leg.acked) return []; // Idempotent
+            
+            leg.acked = true;
             recordPost(msg);
             
-            state = 'ADAPTOR_READY';
-            const events: SessionEvent[] = [{
-                kind: 'ADAPTOR_READY',
-                sid: sid!,
-                transcriptHash: getFullTranscriptHash(),
-                digestB: p.digestB,
-                TB: p.TB
-            }];
+            const events: SessionEvent[] = [];
             
-            // Transition to EXECUTION_PLANNED
-            state = 'EXECUTION_PLANNED';
-            events.push({
-                kind: 'EXECUTION_PLANNED',
-                sid: sid!,
-                transcriptHash: getFullTranscriptHash(),
-                flow: 'B',
-                roleAction: 'broadcast_tx_B', // Bob broadcasts tx_B
-                txB: { unsigned: execTemplates!.txB, digest: execTemplates!.digestB },
-                txA: { unsigned: execTemplates!.txA, digest: execTemplates!.digestA }
-            });
+            // Check if BOTH legs are acked (Bob is ready)
+            if (adaptorLegs.A.acked && adaptorLegs.B.acked) {
+                state = 'ADAPTOR_READY';
+                events.push({
+                    kind: 'ADAPTOR_READY',
+                    sid: sid!,
+                    transcriptHash: getFullTranscriptHash(),
+                    digestA: execTemplates!.digestA,
+                    digestB: execTemplates!.digestB,
+                    TA: adaptorLegs.A.T!,
+                    TB: adaptorLegs.B.T!
+                });
+                
+                // Transition to EXECUTION_PLANNED
+                state = 'EXECUTION_PLANNED';
+                events.push({
+                    kind: 'EXECUTION_PLANNED',
+                    sid: sid!,
+                    transcriptHash: getFullTranscriptHash(),
+                    flow: 'B',
+                    roleAction: 'broadcast_tx_B', // Bob broadcasts tx_B
+                    txB: { unsigned: execTemplates!.txB, digest: execTemplates!.digestB },
+                    txA: { unsigned: execTemplates!.txA, digest: execTemplates!.digestA }
+                });
+            }
             
             return events;
         }

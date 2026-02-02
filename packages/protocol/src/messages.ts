@@ -364,9 +364,13 @@ export type TxTemplateAckMessage = z.infer<typeof TxTemplateAckMessageSchema>;
 // Adaptor Negotiation Messages
 // ============================================
 
+export const AdaptorWhichSchema = z.enum(["A", "B"]);
+export type AdaptorWhich = z.infer<typeof AdaptorWhichSchema>;
+
 export const AdaptorStartPayloadSchema = z.object({
-  digestB: Hex32Schema,
-  TB: Hex32Schema,
+  which: AdaptorWhichSchema,
+  digest: Hex32Schema,
+  T: Hex32Schema,
   mode: z.literal("mock"),
 });
 
@@ -379,9 +383,10 @@ export const AdaptorStartMessageSchema = BaseMessageSchema.extend({
 export type AdaptorStartMessage = z.infer<typeof AdaptorStartMessageSchema>;
 
 export const AdaptorRespPayloadSchema = z.object({
-  digestB: Hex32Schema,
-  TB: Hex32Schema,
-  adaptorSigB: z.string(), // Mock adaptor sig is hex string
+  which: AdaptorWhichSchema,
+  digest: Hex32Schema,
+  T: Hex32Schema,
+  adaptorSig: z.string(), // Mock adaptor sig is hex string
   mode: z.literal("mock"),
 });
 
@@ -394,10 +399,11 @@ export const AdaptorRespMessageSchema = BaseMessageSchema.extend({
 export type AdaptorRespMessage = z.infer<typeof AdaptorRespMessageSchema>;
 
 export const AdaptorAckPayloadSchema = z.object({
+  which: AdaptorWhichSchema,
   ok: z.boolean(),
   reason: z.string().optional(),
-  digestB: Hex32Schema,
-  TB: Hex32Schema,
+  digest: Hex32Schema,
+  T: Hex32Schema,
 });
 
 export const AdaptorAckMessageSchema = BaseMessageSchema.extend({

@@ -7,17 +7,17 @@
 
 import { randomBytes } from 'crypto';
 import {
-    createSessionRuntime,
-    type SessionRuntime,
-    type SessionEvent,
-    type HandshakeParams,
-    type Message,
-    type Role,
-    type SessionState,
-    type MpcResult,
-    type FundingTxPayload,
-    type NonceReportPayload,
-    type FeeParamsPayload,
+  createSessionRuntime,
+  type SessionRuntime,
+  type SessionEvent,
+  type HandshakeParams,
+  type Message,
+  type Role,
+  type SessionState,
+  type MpcResult,
+  type FundingTxPayload,
+  type NonceReportPayload,
+  type FeeParamsPayload,
 } from '@voidswap/protocol';
 
 export interface SessionCallbacks {
@@ -97,14 +97,14 @@ export class Session {
             
             // Tamper adaptor_resp by truncating signature (causes length validation failure)
             if (tamperAdaptor && msg.type === 'adaptor_resp') {
-                 const original = msg.payload.adaptorSigB as string;
+                 const original = msg.payload.adaptorSig as string;
                  // Truncate by 2 hex chars (1 byte) to trigger length check in presignFinish
                  const truncated = original.slice(0, -2);
                  return {
                      ...msg,
                      payload: {
                          ...msg.payload,
-                         adaptorSigB: truncated
+                         adaptorSig: truncated
                      }
                  };
             }
