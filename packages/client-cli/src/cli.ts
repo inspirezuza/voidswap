@@ -24,6 +24,7 @@ export interface CliArgs {
   fundingKey?: string;
   confirmations: number;
   autoBroadcast: boolean;
+  chainIdExplicit: boolean; // true if user passed --chainId explicitly
 }
 
 /**
@@ -56,6 +57,7 @@ export function parseArgs(argv: string[]): CliArgs {
   let fundingKey: string | undefined;
   let confirmations = 1;
   let autoBroadcast = false;
+  let chainIdExplicit = false; // Track if user explicitly passed --chainId
 
   // Parse args
   for (let i = 0; i < args.length; i++) {
@@ -80,6 +82,7 @@ export function parseArgs(argv: string[]): CliArgs {
         break;
       case '--chainId':
         chainId = parseInt(next, 10);
+        chainIdExplicit = true;
         i++;
         break;
       case '--drandChainId':
@@ -185,7 +188,8 @@ export function parseArgs(argv: string[]): CliArgs {
     autoFund,
     fundingKey,
     confirmations,
-    autoBroadcast
+    autoBroadcast,
+    chainIdExplicit
   };
 }
 

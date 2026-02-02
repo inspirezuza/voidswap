@@ -25,6 +25,32 @@ async function main() {
     log(`Room: ${args.room}`);
     log(`Relay: ${args.relay}`);
     
+    // === ChainId Reconciliation ===
+    // Fetch actual chainId from RPC and reconcile with params
+    const { publicClient } = createClients(args.rpcUrl);
+    const rpcChainId = await publicClient.getChainId();
+    
+    if (!args.chainIdExplicit) {
+      // User didn't pass --chainId, auto-detect from RPC
+      if (args.params.chainId !== rpcChainId) {
+        log(`Auto-setting chainId=${rpcChainId} from RPC (was ${args.params.chainId})`);
+        // Re-parse params with correct chainId
+        const { HandshakeParamsSchema } = await import('@voidswap/protocol');
+        args.params = HandshakeParamsSchema.parse({
+          ...args.params,
+          chainId: rpcChainId
+        });
+      }
+    } else {
+      // User explicitly passed --chainId, verify it matches RPC
+      if (args.params.chainId !== rpcChainId) {
+        log(`ERROR: chainId mismatch: params.chainId=${args.params.chainId} but RPC chainId=${rpcChainId}`);
+        log(`Pass --chainId ${rpcChainId} or use correct RPC`);
+        process.exit(1);
+      }
+    }
+    log(`Using chainId=${args.params.chainId}`);
+    
     // Apply tamper if bob and tamper is set
     let params = args.params;
     if (args.role === 'bob' && args.tamper !== 'none') {
@@ -312,16 +338,23 @@ async function main() {
                      // Import dynamically to avoid circular deps
                      const { createWalletClient, http } = await import('viem');
                      const { privateKeyToAccount } = await import('viem/accounts');
-                     const { anvil } = await import('viem/chains');
                      const { mockKeygenWithPriv } = await import('@voidswap/protocol');
 
                      // Get Bob's mock private key
                      const mpcKeys = mockKeygenWithPriv(sid);
                      const account = privateKeyToAccount(mpcKeys.mpcBob.privKey);
 
+                     // Create dynamic chain object matching protocol chainId
+                     const chain = {
+                         id: args.params.chainId,
+                         name: 'voidswap',
+                         nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+                         rpcUrls: { default: { http: [args.rpcUrl] } }
+                     };
+
                      const walletClient = createWalletClient({
                          account,
-                         chain: anvil,
+                         chain,
                          transport: http(args.rpcUrl)
                      });
 
