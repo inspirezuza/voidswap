@@ -641,6 +641,12 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
                 return emitAbort('PROTOCOL_ERROR', `Invalid funding target for role ${msg.from}`);
             }
 
+            // Verify funding amount (must be >= params.vA/vB)
+            const expectedValue = which === 'mpc_Alice' ? params.vA : params.vB;
+            if (BigInt(msg.payload.valueWei) < BigInt(expectedValue)) {
+                 return emitAbort('PROTOCOL_ERROR', `Insufficient funding value: expected >= ${expectedValue}, got ${msg.payload.valueWei}`);
+            }
+
             if (fundingTxByWhich[which]) {
                  const stored = canonicalStringify(fundingTxByWhich[which]);
                  const received = canonicalStringify(msg.payload);
@@ -1051,7 +1057,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
             };
             
             // Apply outbound mutator if present
-            let finalMsg = respMsg;
+            let finalMsg: Message = respMsg;
             if (opts.outboundMutator) {
                  finalMsg = opts.outboundMutator(respMsg);
             }

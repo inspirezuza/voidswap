@@ -60,6 +60,9 @@ async function main() {
 
     // Track if handshake has started (wait for peer)
     let handshakeStarted = false;
+    
+    // Store pending txA for Bob to broadcast later
+    let pendingTxA: { unsigned: any; digest: string } | null = null;
 
     // Create handshake handler
     let transport: Transport;
@@ -330,6 +333,12 @@ async function main() {
              }
              log('='.repeat(60));
 
+             // Store txA for Bob to use later
+             if (args.role === 'bob') {
+                 pendingTxA = txA;
+                 log(`Stored tx_A template for later broadcast.`);
+             }
+
              // Auto-broadcast for Alice (broadcasting tx_B signed by mpcBob)
              if (args.role === 'alice' && args.autoBroadcast && roleAction === 'broadcast_tx_B') {
                  log('');
@@ -440,24 +449,20 @@ async function main() {
                      // mpcAlice = account.address. targetBob = args.params.targetBob.
                      // Value = vB.
                      
+                     // Broadcast tx_A using stored template if available, else derive (fallback fixed to vA)
+                     // Using stored template is much safer as it has exact gas/nonce/value agreed.
+                     
+                     if (!pendingTxA) {
+                         throw new Error('No pending tx_A found! Execution order violation?');
+                     }
+                     
                      const txHashA = await walletClient.sendTransaction({
-                         to: args.params.targetBob as `0x${string}`,
-                         value: BigInt(args.params.vB), // Wait, txA pays to Bob?
-                         // txA pays to Alice?
-                         // "txA" usually means "Alice's payout transaction" (signed by Adapter A).
-                         // Let's check sessionRuntime templates.
-                         // buildExecutionTemplates:
-                         // txA: from mpcAddr, to params.targetAlice, value params.vA.
-                         // txB: from mpcAddr, to params.targetBob, value params.vB.
-                         // Wait, MPC holds funds.
-                         // txA sends to Alice.
-                         // txB sends to Bob.
-                         // So Bob broadcasts tx_A (sending to Alice).
-                         // wait, if Bob completes the swap, sending to Alice... why?
-                         // Usually:
-                         // Alice broadcasts tx_B (sending to Bob).
-                         // Bob sees tx_B, learns secret, broadcasts tx_A (sending to Alice).
-                         // Yes.
+                         to: pendingTxA.unsigned.to as `0x${string}`,
+                         value: BigInt(pendingTxA.unsigned.value),
+                         nonce: pendingTxA.unsigned.nonce,
+                         gas: BigInt(pendingTxA.unsigned.gas),
+                         maxFeePerGas: BigInt(pendingTxA.unsigned.maxFeePerGas),
+                         maxPriorityFeePerGas: BigInt(pendingTxA.unsigned.maxPriorityFeePerGas),
                      });
                      
                      log(`Broadcasted tx_A: ${txHashA}`);

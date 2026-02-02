@@ -69,7 +69,7 @@ pnpm -C packages/client-cli dev -- --role bob --room test --autoFund --rpc http:
 ```
 
 
-Both clients should reach `EXECUTION_PLANNED`. Alice will automatically broadcast `tx_B` (signed by `mpc_Bob` key). Bob will wait for `tx_B` confirmation.
+Both clients should reach `EXECUTION_PLANNED`. Alice will automatically broadcast `tx_B` (signed by `mpc_Bob` key). Bob will wait for `tx_B` confirmation, extract the secret, and broadcast `tx_A`.
 
 ## Security Features
 
@@ -147,6 +147,11 @@ Both clients should reach `EXECUTION_PLANNED`. Alice will automatically broadcas
 ├─────────────────────────────────────────────────────────────────┤
 │  [EXECUTION_PLANNED: Alice broadcasts tx_B, Bob waits]          │
 │  Alice ──broadcast_tx_B──► Mempool                              │
+│  Alice ──txB_broadcast───► Bob                                  │
+│  [TXB_HASH_RECEIVED: Bob watches tx_B]                          │
+│  [Bob extracts secret (mock)]                                   │
+│  Bob   ──broadcast_tx_A──► Mempool                              │
+│  Bob   ──txA_broadcast───► Alice                                │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -170,6 +175,12 @@ pnpm -C packages/client-cli dev -- --role alice --room test --autoFund --rpc htt
 ```
 
 ## Testing
+
+### Execution Flow Verification
+```bash
+pnpm -C packages/protocol test test/executionFlow.test.ts
+```
+Verifies the full end-to-end flow from handshake to final transaction broadcast (Alice -> Bob -> Alice).
 
 ### Tamper Test (Param Mismatch)
 ```bash
@@ -221,7 +232,7 @@ Alice aborts with `Invalid adaptor sig` or similar validation error.
 | Template Sync | ✅ Complete | Deterministic digest verification |
 | Adaptor Negotiation | ✅ Complete | Mock adaptor signature exchange |
 | Execution Planned | ✅ Complete | EXECUTION_PLANNED state + Alice-first plan |
-| Execution Phase | 🔄 Partial | Alice broadcasts tx_B, Bob waits (extract pending) |
+| Execution Phase | ✅ Complete | Alice broadcasts tx_B -> Bob waits -> Bob extracts -> Bob broadcasts tx_A |
 | Refund Phase | ❌ Not Started | Timelock-based refund pending |
 | Idempotency | ✅ Complete | Duplicate messages handled safely |
 | Transcript Stability | ✅ Complete | Hash unchanged under resend |
@@ -239,4 +250,3 @@ These mocks allow testing the protocol flow without the full cryptographic stack
 - **Idempotency**: Duplicate resends (same seq) are ignored without aborting
 - **Anti-Replay**: Out-of-order messages (seq < lastSeq) are rejected
 - **Transcript Stability**: Duplicate messages do not modify the transcript hash
-
