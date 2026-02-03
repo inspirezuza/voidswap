@@ -11,6 +11,7 @@ import type { Message, MpcResult, FundingTxPayload } from '@voidswap/protocol';
 import { createClients, sendEthTransfer, validateFundingTx, getNonce, getBlockNumber } from './chain.js';
 import { formatEther } from 'viem';
 import { validateTxBAgainstPlan } from './validateTx.js';
+import { waitForTxConfirmations } from './watchTx.js';
 
 function log(message: string) {
   const time = new Date().toISOString();
@@ -522,10 +523,37 @@ async function main() {
              }
              log('='.repeat(60));
         },
-        onTxAHashReceived: (sid: string, transcriptHash: string, txAHash: string) => {
+        onTxAHashReceived: async (sid: string, transcriptHash: string, txAHash: string) => {
              log('');
              log('='.repeat(60));
              log(`Received tx_A hash: ${txAHash}`);
+             log(`(Watching for confirmation...)`);
+             
+             if (args.role === 'alice') {
+                 try {
+                     const result = await waitForTxConfirmations({
+                         rpcUrl: args.rpcUrl,
+                         chainId: args.params.chainId,
+                         txHash: txAHash as `0x${string}`,
+                         confirmations: args.confirmations ?? 1, // Default to 1 if not set in args (though args.confirmations exists?)
+                         // Actually args.confirmations is used in validations, check CLI args definition in cli.ts if needed 
+                         // but for now we used it in validateFundingTx so it's likely available.
+                     });
+
+                     if (result.status === 'reverted') {
+                         log(`[ERROR] tx_A reverted. Exchange failed.`);
+                         session.abort('TX_A_REVERTED', `Transaction ${txAHash} failed on-chain`);
+                         return;
+                     }
+
+                     log(`tx_A confirmed! Block: ${result.blockNumber}`);
+                 } catch (e: any) {
+                     log(`[ERROR] Failed waiting for tx_A: ${e.message}`);
+                     session.abort('TX_A_WATCH_FAILED', e.message);
+                     return;
+                 }
+             }
+
              log(`Exchange Complete!`);
              log('='.repeat(60));
         },

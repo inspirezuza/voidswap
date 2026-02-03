@@ -73,6 +73,7 @@ export interface SessionRuntime {
   getMpcAddresses(): { mpcAlice: string; mpcBob: string } | null;
   announceTxBHash(txHash: string): SessionEvent[];
   announceTxAHash(txHash: string): SessionEvent[];
+  abort(code: string, message: string): SessionEvent[];
 }
 
 export interface SessionRuntimeOptions {
@@ -1409,6 +1410,7 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
     getMpcAddresses,
     announceTxBHash,
     announceTxAHash,
+    abort: (code: string, message: string) => emitAbort(code, message),
   };
 }
 

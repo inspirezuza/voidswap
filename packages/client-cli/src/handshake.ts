@@ -262,6 +262,11 @@ export class Session {
       const events = this.runtime.announceTxAHash(txHash);
       this.processEvents(events);
   }
+
+  abort(code: string, message: string) {
+      const events = this.runtime.abort(code, message);
+      this.processEvents(events);
+  }
 }
 
 // Re-export types for convenience
