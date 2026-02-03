@@ -34,7 +34,7 @@ export type SessionEvent =
   | { kind: 'EXEC_TEMPLATES_BUILT'; sid: string; transcriptHash: string; digestA: string; digestB: string }
   | { kind: 'EXEC_TEMPLATES_READY'; sid: string; transcriptHash: string; digestA: string; digestB: string }
   | { kind: 'ADAPTOR_NEGOTIATING'; sid: string; transcriptHash: string }
-  | { kind: 'ADAPTOR_READY'; sid: string; transcriptHash: string; digestA: string; digestB: string; TA: string; TB: string }
+  | { kind: 'ADAPTOR_READY'; sid: string; transcriptHash: string; digestA: string; digestB: string; TA: string; TB: string; adaptorSigA?: string; adaptorSigB?: string }
   | { kind: 'EXECUTION_PLANNED'; sid: string; transcriptHash: string; flow: 'B'; roleAction: 'broadcast_tx_B' | 'wait_tx_B_confirm_then_extract_then_broadcast_tx_A'; txB: { unsigned: any; digest: string }; txA: { unsigned: any; digest: string } }
   | { kind: 'TXB_HASH_RECEIVED'; sid: string; transcriptHash: string; txBHash: string }
   | { kind: 'TXA_HASH_RECEIVED'; sid: string; transcriptHash: string; txAHash: string }
@@ -1122,7 +1122,9 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
                     digestA: execTemplates!.digestA,
                     digestB: execTemplates!.digestB,
                     TA: adaptorLegs.A.T!,
-                    TB: adaptorLegs.B.T!
+                    TB: adaptorLegs.B.T!,
+                    adaptorSigA: adaptorLegs.A.adaptorSig,
+                    adaptorSigB: adaptorLegs.B.adaptorSig
                 });
                 
                 // Transition to EXECUTION_PLANNED
@@ -1170,7 +1172,9 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
                     digestA: execTemplates!.digestA,
                     digestB: execTemplates!.digestB,
                     TA: adaptorLegs.A.T!,
-                    TB: adaptorLegs.B.T!
+                    TB: adaptorLegs.B.T!,
+                    adaptorSigA: adaptorLegs.A.adaptorSig,
+                    adaptorSigB: adaptorLegs.B.adaptorSig
                 });
                 
                 // Transition to EXECUTION_PLANNED
@@ -1194,14 +1198,16 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
     if (state === 'EXECUTION_PLANNED') {
         if (msg.type === 'txB_broadcast') {
             if (role !== 'bob') return emitAbort('PROTOCOL_ERROR', 'Only Bob receives txB_broadcast');
+            if (msg.from !== 'alice') return emitAbort('PROTOCOL_ERROR', 'txB_broadcast must come from Alice');
             
             const p = msg.payload;
             
-            if (peerTxBHash && peerTxBHash !== p.txHash) {
-                return emitAbort('PROTOCOL_ERROR', 'Conflicting txB hash');
+            if (peerTxBHash) {
+                if (peerTxBHash !== p.txHash) {
+                    return emitAbort('PROTOCOL_ERROR', 'Conflicting txB hash announced');
+                }
+                return []; // Idempotent duplicate
             }
-            
-            if (peerTxBHash) return []; // Idempotent
             
             peerTxBHash = p.txHash;
             recordPost(msg);
@@ -1216,14 +1222,16 @@ export function createSessionRuntime(opts: SessionRuntimeOptions): SessionRuntim
         
         if (msg.type === 'txA_broadcast') {
             if (role !== 'alice') return emitAbort('PROTOCOL_ERROR', 'Only Alice receives txA_broadcast');
+            if (msg.from !== 'bob') return emitAbort('PROTOCOL_ERROR', 'txA_broadcast must come from Bob');
             
             const p = msg.payload;
             
-            if (peerTxAHash && peerTxAHash !== p.txHash) {
-                return emitAbort('PROTOCOL_ERROR', 'Conflicting txA hash');
+            if (peerTxAHash) {
+                if (peerTxAHash !== p.txHash) {
+                    return emitAbort('PROTOCOL_ERROR', 'Conflicting txA hash announced');
+                }
+                return []; // Idempotent duplicate
             }
-            
-            if (peerTxAHash) return []; // Idempotent
             
             peerTxAHash = p.txHash;
             recordPost(msg);

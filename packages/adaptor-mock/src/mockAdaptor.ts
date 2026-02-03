@@ -40,6 +40,35 @@ export interface Msg2 {
     adaptorSig: AdaptorSig;
 }
 
+export interface BoundAdaptor {
+    adaptorSig: AdaptorSig;
+    expectedSecret: Hex;
+}
+
+/**
+ * Binds an expected secret to an adaptor signature (Mock only).
+ * This simulates that the adaptor signature was created with a specific secret in mind.
+ */
+export function bindExpectedSecret(adaptorSig: AdaptorSig, expectedSecret: Hex): BoundAdaptor {
+    assertHex32(expectedSecret, 'expectedSecret');
+    return {
+        adaptorSig,
+        expectedSecret
+    };
+}
+
+/**
+ * Completes the "adaptor" by unlocking it with the secret.
+ * In this Mock/Phase 2A, it simply verifies the secret matches the expectation.
+ */
+export function completeWithSecret(bound: BoundAdaptor, secret: Hex): { ok: true } {
+    assertHex32(secret, 'secret');
+    if (secret !== bound.expectedSecret) {
+        throw new Error('BAD_SECRET');
+    }
+    return { ok: true };
+}
+
 /**
  * Alice starts the presign flow.
  */

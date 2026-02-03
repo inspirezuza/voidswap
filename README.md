@@ -176,11 +176,49 @@ pnpm -C packages/client-cli dev -- --role alice --room test --autoFund --rpc htt
 
 ## Testing
 
-### Execution Flow Verification
+### Automated Unit Tests
+```bash
+# Run all tests
+pnpm test
+
+# Run protocol logic tests
+pnpm -C packages/protocol test
+
+# Run validation logic tests
+pnpm -C packages/client-cli test
+
+# Run adaptor mock tests
+pnpm -C packages/adaptor-mock test
+```
+
+### End-to-End Execution Flow (Manual)
+```bash
+# Terminal 1: Start native Anvil node
+anvil
+
+# Terminal 2: Start Relay
+pnpm -C packages/relay dev
+
+# Terminal 3: Run Alice (Funding Key 0xac09... is Anvil account #0)
+pnpm -C packages/client-cli dev -- --role alice --room test --autoFund --autoBroadcast --rpc http://127.0.0.1:8545 --fundingKey 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+
+# Terminal 4: Run Bob (Funding Key 0x59c6... is Anvil account #1)
+pnpm -C packages/client-cli dev -- --role bob --room test --autoFund --rpc http://127.0.0.1:8545 --fundingKey 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+```
+Expected result:
+- Handshake completes.
+- Keygen, Capsule, Funding, Prep, Template, Adaptor phases pass.
+- Alice broadcasts `tx_B`.
+- Bob detects `tx_B` confirmation.
+- Bob derives secret from `tx_B` signature.
+- **Bob verifies secret against Adaptor Signature**.
+- Bob broadcasts `tx_A`.
+
+### Execution Flow Verification (Test Runner)
 ```bash
 pnpm -C packages/protocol test test/executionFlow.test.ts
 ```
-Verifies the full end-to-end flow from handshake to final transaction broadcast (Alice -> Bob -> Alice).
+Verifies the full end-to-end flow logic (mocked transport) from handshake to final transaction broadcast.
 
 ### Tamper Test (Param Mismatch)
 ```bash
@@ -232,7 +270,7 @@ Alice aborts with `Invalid adaptor sig` or similar validation error.
 | Template Sync | ✅ Complete | Deterministic digest verification |
 | Adaptor Negotiation | ✅ Complete | Mock adaptor signature exchange |
 | Execution Planned | ✅ Complete | EXECUTION_PLANNED state + Alice-first plan |
-| Execution Phase | ✅ Complete | Alice broadcasts tx_B -> Bob waits -> Bob extracts -> Bob broadcasts tx_A |
+| Execution Phase | ✅ Complete | Alice broadcasts tx_B -> Bob waits -> Bob extracts secret -> Bob unlocks adaptor -> Bob broadcasts tx_A |
 | Refund Phase | ❌ Not Started | Timelock-based refund pending |
 | Idempotency | ✅ Complete | Duplicate messages handled safely |
 | Transcript Stability | ✅ Complete | Hash unchanged under resend |
@@ -242,6 +280,7 @@ Alice aborts with `Invalid adaptor sig` or similar validation error.
 1. **`mockKeygen.ts`** - Deterministic Ethereum addresses via viem (keccak256 → secp256k1)
 2. **`mockTlock.ts`** - Deterministic ciphertext/proof using `canonicalStringify`
 3. **`mockYShare`** - Deterministic Y-share commitments for capsule exchange
+4. **`mockAdaptor.ts`** - ECDSA adaptor signature mock with secret binding checks
 
 These mocks allow testing the protocol flow without the full cryptographic stack.
 
@@ -250,3 +289,4 @@ These mocks allow testing the protocol flow without the full cryptographic stack
 - **Idempotency**: Duplicate resends (same seq) are ignored without aborting
 - **Anti-Replay**: Out-of-order messages (seq < lastSeq) are rejected
 - **Transcript Stability**: Duplicate messages do not modify the transcript hash
+- **Atomic Broadcast**: Bob requires valid secret (derived from tx_B) to complete adaptor and broadcast tx_A

@@ -12,6 +12,9 @@ import { createClients, sendEthTransfer, validateFundingTx, getNonce, getBlockNu
 import { formatEther } from 'viem';
 import { validateTxBAgainstPlan } from './validateTx.js';
 import { waitForTxConfirmations } from './watchTx.js';
+import { computeSigFingerprint } from './sigFingerprint.js';
+import { deriveSecretFromSigHash, redactedHex } from './deriveSecret.js';
+import { bindExpectedSecret, completeWithSecret } from '@voidswap/adaptor-mock';
 
 function log(message: string) {
   const time = new Date().toISOString();
@@ -71,6 +74,14 @@ async function main() {
     // Store MPC addresses for validation
     let mpcAliceAddr: string | null = null;
     let mpcBobAddr: string | null = null;
+    
+    // Store sigHashB for secret derivation
+    let sigHashB: string | null = null;
+    // Store derived secret
+    let derivedSecretB: string | null = null;
+    
+    // Store pending adaptor signature (Bob needs Alice's sig for tx_A)
+    let pendingAdaptorSigA: string | null = null;
 
 
     // Create handshake handler
@@ -321,13 +332,19 @@ async function main() {
              }
              log('='.repeat(60));
         },
-        onAdaptorReady: (sid: string, transcriptHash: string, digestB: string, TB: string) => {
+        onAdaptorReady: (sid: string, transcriptHash: string, digestB: string, TB: string, adaptorSigA?: string) => {
              log('');
              log('='.repeat(60));
              log(`STATE: ADAPTOR_READY`);
              log(`Adaptor negotiation complete.`);
              log(`digestB: ${args.verbose ? digestB : digestB.slice(0, 18) + '...'}`);
              log(`TB: ${args.verbose ? TB : TB.slice(0, 18) + '...'}`);
+             
+             if (args.role === 'bob' && adaptorSigA) {
+                 pendingAdaptorSigA = adaptorSigA;
+                 log(`Stored pending adaptorSigA for tx_A unlock.`);
+             }
+
              if (args.verbose) {
                  log(`Transcript Hash: ${transcriptHash}`);
              }
@@ -461,9 +478,47 @@ async function main() {
                      
                      // "Extract" secret (Mock: Derive TA)
                      log('Extracting secret from tx_B...');
+
+                     // Fetch full tx to get signature
+                     const tx = await publicClient.getTransaction({ hash: txBHash as `0x${string}` });
+                     if (!tx.r || !tx.s || tx.v === null || tx.v === undefined) {
+                      throw new Error(`tx_B signature missing? hash=${txBHash}`);
+                     }
+                     const fingerprint = computeSigFingerprint({
+                      r: tx.r,
+                      s: tx.s,
+                      v: BigInt(tx.v)
+                     });
+                     sigHashB = fingerprint.sigHash;
+                     log(`tx_B sigHash: ${sigHashB}`);
+                     
+                     // Helper to derive secret
+                     derivedSecretB = deriveSecretFromSigHash({ sid, sigHashB: sigHashB as `0x${string}` });
+                     log(`Derived secret from on-chain sig: ${redactedHex(derivedSecretB)}`);
+
                      // In mock, we just proceed.
                      
                      log('Broadcasting tx_A (signed by mpc_Alice, published by Bob)...');
+                     
+                     // Gating check
+                     if (!derivedSecretB) {
+                         throw new Error(`[SECURITY] Refusing to broadcast tx_A because secret is missing.`);
+                     }
+
+                     // Unlock adaptor signature
+                     if (!pendingAdaptorSigA) {
+                        throw new Error('Missing pendingAdaptorSigA (tx_A authorization).');
+                     }
+                     
+                     try {
+                        log('Unlocking tx_A adaptor signature...');
+                        const bound = bindExpectedSecret(pendingAdaptorSigA as `0x${string}`, derivedSecretB as `0x${string}`);
+                        completeWithSecret(bound, derivedSecretB as `0x${string}`);
+                        log('Completing tx_A* with derived secret... ok');
+                     } catch (e: any) {
+                         log(`[SECURITY] Adaptor Unlock Failed: ${e.message}`);
+                         throw e;
+                     }
                      
                      // Get mpcAlice key (Bob derives/has it in mock)
                      const mpcKeys = mockKeygenWithPriv(sid);
@@ -474,24 +529,6 @@ async function main() {
                           chain,
                           transport: http(args.rpcUrl)
                      });
-                     
-                     // Helper to find txA params.
-                     // The event has txA params but we don't have them in this scope easily unless we stored them.
-                     // BUT, we can just use the exact params from the "EXECUTION_PLANNED" log?
-                     // No, better to store them. 
-                     // OR, simpler for this task: Just send a generic tx_A?
-                     // The protocol expects SPECIFIC tx_A digest? No, protocol is done with digest checking.
-                     // But we want to be realistic.
-                     // However, accessing `txA` from `onExecutionPlanned` scope is hard without global state.
-                     // Let's cheat and send a self-transfer or similar, OR retrieve from session?
-                     // Session doesn't expose templates.
-                     // Let's use a dummy tx for now, or reconstructed params if possible.
-                     // Actually, tx_A is specific: mpcAlice -> targetBob.
-                     // mpcAlice = account.address. targetBob = args.params.targetBob.
-                     // Value = vB.
-                     
-                     // Broadcast tx_A using stored template if available, else derive (fallback fixed to vA)
-                     // Using stored template is much safer as it has exact gas/nonce/value agreed.
                      
                      if (!pendingTxA) {
                          throw new Error('No pending tx_A found! Execution order violation?');
@@ -512,6 +549,7 @@ async function main() {
                      session.announceTxAHash(txHashA);
                      log(`Announced tx_A hash to peer.`);
                      log('='.repeat(60));
+                     
                      
                  } catch (e: any) {
                      log(`Bob execution failed: ${e.message}`);

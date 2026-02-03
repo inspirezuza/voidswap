@@ -34,6 +34,9 @@ importers:
 
   packages/client-cli:
     dependencies:
+      '@voidswap/adaptor-mock':
+        specifier: workspace:*
+        version: link:../adaptor-mock
       '@voidswap/protocol':
         specifier: workspace:*
         version: link:../protocol

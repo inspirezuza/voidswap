@@ -34,7 +34,7 @@ export interface SessionCallbacks {
   onExecTemplatesBuilt: (sid: string, transcriptHash: string, digestA: string, digestB: string) => void;
   onExecTemplatesReady: (sid: string, transcriptHash: string, digestA: string, digestB: string) => void;
   onAdaptorNegotiating: (sid: string, transcriptHash: string) => void;
-  onAdaptorReady: (sid: string, transcriptHash: string, digestB: string, TB: string) => void;
+  onAdaptorReady: (sid: string, transcriptHash: string, digestB: string, TB: string, adaptorSigA?: string) => void;
   onExecutionPlanned: (sid: string, transcriptHash: string, flow: 'B', roleAction: string, txB: { unsigned: any; digest: string }, txA: { unsigned: any; digest: string }) => void;
   onTxBHashReceived: (sid: string, transcriptHash: string, txBHash: string) => void;
   onTxAHashReceived: (sid: string, transcriptHash: string, txAHash: string) => void;
@@ -196,7 +196,7 @@ export class Session {
           this.callbacks.onAdaptorNegotiating(event.sid, event.transcriptHash);
           break;
         case 'ADAPTOR_READY':
-          this.callbacks.onAdaptorReady(event.sid, event.transcriptHash, event.digestB, event.TB);
+          this.callbacks.onAdaptorReady(event.sid, event.transcriptHash, event.digestB, event.TB, event.adaptorSigA);
           break;
         case 'EXECUTION_PLANNED':
           this.callbacks.onExecutionPlanned(event.sid, event.transcriptHash, event.flow, event.roleAction, event.txB, event.txA);

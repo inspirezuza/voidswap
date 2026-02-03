@@ -424,6 +424,7 @@ export const TxBBroadcastPayloadSchema = z.object({
 
 export const TxBBroadcastMessageSchema = BaseMessageSchema.extend({
   type: z.literal("txB_broadcast"),
+  from: z.literal("alice"),
   sid: z.string(),
   payload: TxBBroadcastPayloadSchema,
 });
@@ -440,6 +441,7 @@ export const TxABroadcastPayloadSchema = z.object({
 
 export const TxABroadcastMessageSchema = BaseMessageSchema.extend({
   type: z.literal("txA_broadcast"),
+  from: z.literal("bob"),
   sid: z.string(),
   payload: TxABroadcastPayloadSchema,
 });

@@ -45,3 +45,12 @@ test_output*.txt
 # AI Agent Artifacts
 .gemini/
 .agent/
+.vscode/
+task.md
+implementation_plan.md
+walkthrough.md
+
+# Temporary Files
+*.tmp
+*.bak
+
