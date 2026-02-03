@@ -10,6 +10,7 @@ import { Session } from './handshake.js';
 import type { Message, MpcResult, FundingTxPayload } from '@voidswap/protocol';
 import { createClients, sendEthTransfer, validateFundingTx, getNonce, getBlockNumber } from './chain.js';
 import { formatEther } from 'viem';
+import { validateTxBAgainstPlan } from './validateTx.js';
 
 function log(message: string) {
   const time = new Date().toISOString();
@@ -63,6 +64,13 @@ async function main() {
     
     // Store pending txA for Bob to broadcast later
     let pendingTxA: { unsigned: any; digest: string } | null = null;
+    // Store pending txB for Bob to validate against
+    let pendingTxB: { unsigned: any; digest: string } | null = null;
+    
+    // Store MPC addresses for validation
+    let mpcAliceAddr: string | null = null;
+    let mpcBobAddr: string | null = null;
+
 
     // Create handshake handler
     let transport: Transport;
@@ -91,6 +99,11 @@ async function main() {
         }
         log(`Alice Address: ${mpcAlice.address}`);
         log(`Bob Address:   ${mpcBob.address}`);
+        
+        // Store for later usage (validation)
+        mpcAliceAddr = mpcAlice.address;
+        mpcBobAddr = mpcBob.address;
+
         log('='.repeat(60));
         log('');
       },
@@ -336,7 +349,8 @@ async function main() {
              // Store txA for Bob to use later
              if (args.role === 'bob') {
                  pendingTxA = txA;
-                 log(`Stored tx_A template for later broadcast.`);
+                 pendingTxB = txB;
+                 log(`Stored tx_A template for later broadcast and tx_B for validation.`);
              }
 
              // Auto-broadcast for Alice (broadcasting tx_B signed by mpcBob)
@@ -417,6 +431,32 @@ async function main() {
                          throw new Error('tx_B failed');
                      }
                      log(`tx_B confirmed! Block: ${receipt.blockNumber}`);
+                     
+                     // Validate tx_B against plan
+                     if (!pendingTxB) {
+                         throw new Error('No pending tx_B found! Execution cycle violation?');
+                     }
+                     if (!mpcBobAddr) {
+                         throw new Error('MPC Bob address not found! Keygen incomplete?');
+                     }
+                     
+                     log('Validating tx_B against agreed template...');
+                     await validateTxBAgainstPlan({
+                         rpcUrl: args.rpcUrl,
+                         txHash: txBHash as `0x${string}`,
+                         planned: {
+                             chainId: args.params.chainId,
+                             from: mpcBobAddr, // mpc_Bob address (sender of txB)
+                             to: pendingTxB.unsigned.to,
+                             value: BigInt(pendingTxB.unsigned.value),
+                             nonce: Number(pendingTxB.unsigned.nonce),
+                             gas: BigInt(pendingTxB.unsigned.gas),
+                             maxFeePerGas: BigInt(pendingTxB.unsigned.maxFeePerGas),
+                             maxPriorityFeePerGas: BigInt(pendingTxB.unsigned.maxPriorityFeePerGas)
+                         },
+                         plannedDigestB: pendingTxB.digest
+                     });
+                     log('tx_B validation PASSED. Proceeding to extract secret.');
                      
                      // "Extract" secret (Mock: Derive TA)
                      log('Extracting secret from tx_B...');

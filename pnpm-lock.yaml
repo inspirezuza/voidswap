@@ -14,6 +14,10 @@ importers:
       viem:
         specifier: ^2.45.0
         version: 2.45.0(typescript@5.9.3)(zod@3.25.76)
+    devDependencies:
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@22.19.7)(tsx@4.21.0)
 
   packages/adaptor-mock:
     dependencies:
@@ -33,6 +37,9 @@ importers:
       '@voidswap/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@voidswap/tx-template':
+        specifier: workspace:*
+        version: link:../tx-template
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1
@@ -994,14 +1001,6 @@ snapshots:
       chai: 5.3.3
       tinyrainbow: 2.0.0
 
-  '@vitest/mocker@3.2.4(vite@7.3.1(@types/node@20.19.30)(tsx@4.21.0))':
-    dependencies:
-      '@vitest/spy': 3.2.4
-      estree-walker: 3.0.3
-      magic-string: 0.30.21
-    optionalDependencies:
-      vite: 7.3.1(@types/node@20.19.30)(tsx@4.21.0)
-
   '@vitest/mocker@3.2.4(vite@7.3.1(@types/node@22.19.7)(tsx@4.21.0))':
     dependencies:
       '@vitest/spy': 3.2.4
@@ -1320,7 +1319,7 @@ snapshots:
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/expect': 3.2.4
-      '@vitest/mocker': 3.2.4(vite@7.3.1(@types/node@20.19.30)(tsx@4.21.0))
+      '@vitest/mocker': 3.2.4(vite@7.3.1(@types/node@22.19.7)(tsx@4.21.0))
       '@vitest/pretty-format': 3.2.4
       '@vitest/runner': 3.2.4
       '@vitest/snapshot': 3.2.4

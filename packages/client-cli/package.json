@@ -7,13 +7,15 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "alice": "tsx src/index.ts --role alice --room test",
-    "bob": "tsx src/index.ts --role bob --room test"
+    "bob": "tsx src/index.ts --role bob --room test",
+    "test": "vitest"
   },
   "dependencies": {
     "@voidswap/protocol": "workspace:*",
     "ws": "^8.18.0",
     "viem": "^2.22.4",
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "@voidswap/tx-template": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
